@@ -1,0 +1,4 @@
+UIC,Date,BOID,StartDate,UTCEndDateTime,UTCStartDateTime,OldNoOfStocks,NewNoOfStocks,AccSplitFactor,NeedSplit,AccSplitReady,timestamp,EventCode,EventName,Comment,EntitlementId
+3906,2022-07-18 00:00:00,8950874,2017-08-18 00:00:00,2022-07-18 04:00:00,2017-08-18 04:00:00,0.0,0.0,1.0,False,True,"b'\x00\x00\x00\x03\xeb\x1d,\x98'",216,RepurchaseOffer,,-1
+3906,2022-08-17 00:00:00,8949751,2022-07-18 00:00:00,2022-08-17 04:00:00,2022-07-18 04:00:00,0.0,0.0,1.0,False,True,"b'\x00\x00\x00\x03\xeb\x1d,\x97'",231,Odd Lot Sale Purchase	,,-1
+3906,2023-05-26 00:00:00,9073617,2022-08-17 00:00:00,2023-05-26 04:00:00,2022-08-17 04:00:00,0.9937989711761475,1.0,1.0,False,True,"b'\x00\x00\x00\x03\xeb\x1d,\x96'",10,Cash Dividend,,-1

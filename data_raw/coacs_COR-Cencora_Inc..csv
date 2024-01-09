@@ -1,0 +1,2 @@
+UIC,Date,BOID,StartDate,UTCEndDateTime,UTCStartDateTime,OldNoOfStocks,NewNoOfStocks,AccSplitFactor,NeedSplit,AccSplitReady,timestamp,EventCode,EventName,Comment,EntitlementId
+37349853,2023-08-30 00:00:00,9122824,1900-01-01 00:00:00,2023-08-30 04:00:00,1900-01-01 00:00:00,0.0,0.0,1.0,False,True,b'\x00\x00\x00\x04:U_\x0b',249,Change,,-1

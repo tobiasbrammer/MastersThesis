@@ -1,0 +1,2 @@
+UIC,Date,BOID,StartDate,UTCEndDateTime,UTCStartDateTime,OldNoOfStocks,NewNoOfStocks,AccSplitFactor,NeedSplit,AccSplitReady,timestamp,EventCode,EventName,Comment,EntitlementId
+15396496,2022-11-08 00:00:00,8990015,2013-11-21 00:00:00,2022-11-08 05:00:00,2013-11-21 05:00:00,1.0,1.0,1.0,False,True,b'\x00\x00\x00\x03\xd9\xed\x8c\x10',249,Change,,-1

@@ -1,0 +1,5 @@
+UIC,Date,BOID,StartDate,UTCEndDateTime,UTCStartDateTime,OldNoOfStocks,NewNoOfStocks,AccSplitFactor,NeedSplit,AccSplitReady,timestamp,EventCode,EventName,Comment,EntitlementId
+304,2022-01-12 00:00:00,8868594,2019-08-08 00:00:00,2022-01-12 05:00:00,2019-08-08 04:00:00,0.0,0.0,1.0,False,True,b'\x00\x00\x00\x03\xf3\x08R\xf5',216,RepurchaseOffer,,-1
+304,2022-02-09 00:00:00,8867386,2022-01-12 00:00:00,2022-02-09 05:00:00,2022-01-12 05:00:00,0.0,0.0,1.0,False,True,b'\x00\x00\x00\x03\xf3\x08R\xf4',231,Odd Lot Sale Purchase	,,-1
+304,2022-03-16 00:00:00,8881539,2022-02-09 00:00:00,2022-03-16 04:00:00,2022-02-09 05:00:00,0.0,0.0,1.0,False,True,b'\x00\x00\x00\x03\xf3\x08R\xf3',231,Odd Lot Sale Purchase	,,-1
+304,2023-06-14 00:00:00,9087206,2022-03-16 00:00:00,2023-06-14 04:00:00,2022-03-16 04:00:00,0.0,0.0,1.0,False,False,b'\x00\x00\x00\x03\xf3\x08R\xf2',239,Trading Status:Delisted,,-1

@@ -1,0 +1,6 @@
+UIC,Date,BOID,StartDate,UTCEndDateTime,UTCStartDateTime,OldNoOfStocks,NewNoOfStocks,AccSplitFactor,NeedSplit,AccSplitReady,timestamp,EventCode,EventName,Comment,EntitlementId
+721,2023-01-09 00:00:00,9003968,2018-10-09 00:00:00,2023-01-09 05:00:00,2018-10-09 04:00:00,0.9845340251922607,1.0,1.0,False,True,b'\x00\x00\x00\x03\xfbK\x82+',10,Cash Dividend,,-1
+721,2023-04-06 00:00:00,9042060,2023-01-09 00:00:00,2023-04-06 04:00:00,2023-01-09 05:00:00,0.9837319850921631,1.0,1.0,False,True,b'\x00\x00\x00\x03\xfbK\x82*',10,Cash Dividend,,-1
+721,2023-05-15 00:00:00,9079769,2023-04-06 00:00:00,2023-05-15 04:00:00,2023-04-06 04:00:00,0.0,0.0,1.0,False,True,b'\x00\x00\x00\x03\xfbK\x82)',231,Odd Lot Sale Purchase	,,-1
+721,2023-06-07 00:00:00,9079283,2023-05-15 00:00:00,2023-06-07 04:00:00,2023-05-15 04:00:00,0.0,0.0,1.0,False,True,b'\x00\x00\x00\x03\xfbK\x82(',231,Odd Lot Sale Purchase	,,-1
+721,2023-07-12 00:00:00,9090030,2023-06-07 00:00:00,2023-07-12 04:00:00,2023-06-07 04:00:00,0.0,0.0,1.0,False,False,"b""\x00\x00\x00\x03\xfbK\x82'""",231,Odd Lot Sale Purchase	,,-1
