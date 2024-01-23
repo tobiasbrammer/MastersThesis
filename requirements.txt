@@ -1,0 +1,11 @@
+numpy~=1.26.3
+pandas~=2.1.4
+polars~=0.20.3
+petname>=2.6
+psutil>=5.8.0
+torch>=1.9.0
+gpuinfo>=1.0.0a7
+matplotlib>=3.4.3
+twilio>=6.63.1
+PyYAML>=5.4.1
+scikit_learn>=0.24.2
