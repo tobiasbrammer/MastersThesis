@@ -2,65 +2,53 @@ import os
 import polars as pl
 import re
 
+# Set environment variable for Rust backtrace
+os.environ['RUST_BACKTRACE'] = '1'
 
 # Get all files in data_raw
-files = os.listdir('data_raw')
-files = [f for f in files if f.endswith('.csv')]
+files = [f for f in os.listdir('data_raw') if f.endswith('.csv')]
 
 # Define the pattern using regular expression
 pattern = re.compile(r'_(.*?)-')
 
 ##################### PRICES #####################
 
-# For files that begins with prices
-prices = [f for f in files if f.startswith('prices')]
+# For files that begin with prices
+prices = sorted([f for f in files if f.startswith('prices')])
 
-# Create empty dataframe
+# Create an empty list to store DataFrames
 df_list = []
-# For each file, add it to df
+numeric_cols = ['StockOpen', 'StockClose', 'StockHigh', 'StockLow', 'StockVol']
+
+# Iterate over each file, add it to df_list
 for file in prices:
-    # Read csv file and try to parse dates
-    df_temp = pl.scan_csv('data_raw/' + file, low_memory=True)
-    # Force StockOpen  ┆ StockClose ┆ StockHigh  ┆ StockLow   ┆ StockVol to f64
-    df_temp = df_temp.with_columns(
-        pl.col('StockOpen').cast(pl.Float64),
-        pl.col('StockClose').cast(pl.Float64),
-        pl.col('StockHigh').cast(pl.Float64),
-        pl.col('StockLow').cast(pl.Float64),
-        pl.col('StockVol').cast(pl.Float64)
-    )
-    # If df_temp is empty, continue
-    # Extraxt the ticker from the filename and add it as a column
+    # Construct the file path
+    file_path = os.path.join('data_raw', file)
+    # Read CSV file and try to parse dates
+    df_temp = (pl.scan_csv(file_path)
+               .with_columns(**{col: pl.col(col).cast(pl.Float64) for col in numeric_cols}))
+    # Extract the ticker from the filename and add it as a column
     ticker = re.search(pattern, file).group(1)
-    # Add ticker as a column
     df_temp = df_temp.with_columns(pl.lit(ticker).alias("ticker"))
     # Add df_temp to df_list
     df_list.append(df_temp)
-    del df_temp
-    print(ticker)
-
+    del df_temp, file, file_path, ticker
 
 print('Concatenating dataframes...')
 
-df = pl.concat(df_list)
-
+# Apply date/time transformations
 (
-    df
+    pl.concat(df_list)
     .with_columns(
-        pl.col('StartTime').str.strptime(pl.Datetime, format='%Y-%m-%d %H:%M:%S').cast(pl.Datetime).alias('datetime'),
+        pl.col('StartTime').str.strptime(pl.Datetime, format='%Y-%m-%d %H:%M:%S').alias('datetime'),
         pl.col('StartTime').str.strptime(pl.Datetime, format='%Y-%m-%d %H:%M:%S').cast(pl.Date).alias('date'),
         pl.col('StartTime').str.strptime(pl.Datetime, format='%Y-%m-%d %H:%M:%S').cast(pl.Time).alias('time')
     )
     .drop('StartTime')
-)
+).sink_parquet('prices.parquet')
 
-df.sink_parquet('prices.parquet')
-
-
-# Delete all from workspace expect globals
-del df_list, file, ticker, df_temp, prices
-
-print('Getting daily prices...')
+# Clean up unused variables
+del df_list
 
 # Scan parquet file, and create a LazyFrame
 lf = pl.scan_parquet('prices.parquet', low_memory=True)
@@ -68,14 +56,15 @@ lf = pl.scan_parquet('prices.parquet', low_memory=True)
 # Group by date and ticker and sum StockVol to get daily volume
 lf_dvol = lf.group_by(['date', 'ticker']).agg(pl.sum('StockVol').alias('daily_volume'))
 
-# Join lf and lf_dvol
-lf = lf.join(lf_dvol, on=['date', 'ticker'])
-
 # Only keep rows with time 20:59:00
-lf.filter(pl.col('time').str.contains('20:59:00')).sink_parquet('prices_daily.parquet')
+(lf
+    .filter(pl.col('time').str.contains('20:59:00'))
+    .join(lf_dvol, on=['date', 'ticker'])
+    .sink_parquet('prices_daily.parquet')
+)
 
 # Clear LazyFrame
-del lf, lf_dvol
+del lf, lf_dvol, numeric_cols, prices
 
 ##################### COACS #####################
 
@@ -87,21 +76,33 @@ coacs = [f for f in files if f.startswith('coacs')]
 # Create empty dataframe
 df_list = []
 
-# For each file, add it to df
+# Iterate over each file, add it to df_list
 for file in coacs:
-    # Read csv file and try to parse dates
-    df_temp = pl.scan_csv('data_raw/' + file)
-    # If df_temp is empty, continue
+    # Construct the file path
+    file_path = os.path.join('data_raw', file)
+    # Read CSV file and try to parse dates
+    df_temp = pl.scan_csv(file_path)
+    # Extract the ticker from the filename and add it as a column
     ticker = re.search(pattern, file).group(1)
-    # Add ticker as a column
     df_temp = df_temp.with_columns(pl.lit(ticker).alias("ticker"))
+    # Add df_temp to df_list
     df_list.append(df_temp)
-    print(ticker)
+    del df_temp, file, file_path, ticker
 
-pl.concat(df_list).sink_parquet('coacs.parquet')
+
+(
+    pl.concat(df_list)
+    .with_columns(
+        pl.col('Date').str.strptime(pl.Datetime, format='%Y-%m-%d %H:%M:%S').alias('datetime'),
+        pl.col('Date').str.strptime(pl.Datetime, format='%Y-%m-%d %H:%M:%S').cast(pl.Date).alias('date'),
+        pl.col('Date').str.strptime(pl.Datetime, format='%Y-%m-%d %H:%M:%S').cast(pl.Time).alias('time')
+    )
+    .drop('Date')
+).sink_parquet('coacs.parquet')
 
 # Delete variables from workspace
-del df_list, file, ticker, df_temp, coacs, files, pattern
+del df_list, coacs, files, pattern
+
 print('')
 print('')
 print('Done!')
