@@ -9,3 +9,5 @@ df = sc.collect()
 
 sc.head()
 
+
+df.describe()
