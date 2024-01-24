@@ -2,7 +2,7 @@
 import polars as pl
 
 # Read parquet file
-sc = pl.scan_parquet('prices.parquet', low_memory=True)
+sc = pl.scan_parquet('prices_daily.parquet', low_memory=True)
 
 # Describe the LazyFrame
 df = sc.collect()
