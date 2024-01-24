@@ -89,4 +89,3 @@ df.write_parquet('coacs.parquet')
 del df_list, file, ticker, df_temp, df, coacs, files, pattern
 
 print('Done!')
-

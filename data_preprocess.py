@@ -2,12 +2,12 @@
 import polars as pl
 
 # Read parquet file
-sc = pl.scan_parquet('prices_daily.parquet', low_memory=True)
+lf = pl.scan_parquet('prices_daily.parquet', low_memory=True)
 
-# Describe the LazyFrame
-df = sc.collect()
-
-sc.head()
-
+# Load LazyFrame to memory
+df = lf.collect(streaming=True)
 
 df.describe()
+
+# Get ticker with most data
+df.groupby('ticker').count().sort('StartTime').head(1)
