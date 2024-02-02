@@ -60,15 +60,24 @@ print("Concatenating dataframes...")
     pl.concat(df_list)
     .with_columns(
         pl.col("StartTime")
-        .str.strptime(pl.Datetime, format="%Y-%m-%d %H:%M:%S")
-        .cast(pl.Datetime)
+        .str.strptime(
+            pl.Datetime(time_unit="us", time_zone="Europe/Copenhagen"),
+            format="%Y-%m-%d %H:%M:%S",
+        )
+        .cast(pl.Datetime(time_unit="us", time_zone="Europe/Copenhagen"))
         .alias("datetime"),
         pl.col("StartTime")
-        .str.strptime(pl.Datetime, format="%Y-%m-%d %H:%M:%S")
+        .str.strptime(
+            pl.Datetime(time_unit="us", time_zone="Europe/Copenhagen"),
+            format="%Y-%m-%d %H:%M:%S",
+        )
         .cast(pl.Date)
         .alias("date"),
         pl.col("StartTime")
-        .str.strptime(pl.Datetime, format="%Y-%m-%d %H:%M:%S")
+        .str.strptime(
+            pl.Datetime(time_unit="us", time_zone="Europe/Copenhagen"),
+            format="%Y-%m-%d %H:%M:%S",
+        )
         .cast(pl.Time)
         .alias("time"),
     )
@@ -78,27 +87,6 @@ print("Concatenating dataframes...")
 # Clean up unused variables
 del df_list
 
-print("Creating daily dataset...")
-
-# Scan parquet file, and create a LazyFrame
-lf = pl.scan_parquet("prices.parquet")
-
-# Group by date and ticker and sum StockVol to get daily volume
-lf_dvol = lf.group_by(["date", "ticker"]).agg(
-    pl.sum("StockVol").cast(pl.Float64).alias("daily_volume")
-)
-
-# Only keep rows with time 20:59:00
-lf_joined = lf.filter(pl.col("time").str.contains("20:59:00")).join(
-    lf_dvol, on=["date", "ticker"]
-)
-
-# Clear LazyFrame
-del lf, lf_dvol, numeric_cols, prices
-
-lf_joined.collect().write_parquet("prices_daily.parquet")
-
-del lf_joined
 # %% ################## COACS ##################
 
 print("Getting CoACS...")
@@ -127,15 +115,24 @@ for file in coacs:
     pl.concat(df_list)
     .with_columns(
         pl.col("Date")
-        .str.strptime(pl.Datetime, format="%Y-%m-%d %H:%M:%S")
+        .str.strptime(
+            pl.Datetime(time_unit="us", time_zone="Europe/Copenhagen"),
+            format="%Y-%m-%d %H:%M:%S",
+        )
         .cast(pl.Datetime)
         .alias("datetime"),
         pl.col("Date")
-        .str.strptime(pl.Datetime, format="%Y-%m-%d %H:%M:%S")
+        .str.strptime(
+            pl.Datetime(time_unit="us", time_zone="Europe/Copenhagen"),
+            format="%Y-%m-%d %H:%M:%S",
+        )
         .cast(pl.Date)
         .alias("date"),
         pl.col("Date")
-        .str.strptime(pl.Datetime, format="%Y-%m-%d %H:%M:%S")
+        .str.strptime(
+            pl.Datetime(time_unit="us", time_zone="Europe/Copenhagen"),
+            format="%Y-%m-%d %H:%M:%S",
+        )
         .cast(pl.Time)
         .alias("time"),
     )
