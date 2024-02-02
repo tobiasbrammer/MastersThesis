@@ -38,3 +38,6 @@ Thumbs.db
 ######################
 data_raw_csv/
 
+coacs.parquet
+prices.parquet
+prices_daily.parquet
