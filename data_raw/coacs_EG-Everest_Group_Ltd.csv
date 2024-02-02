@@ -1,4 +1,0 @@
-UIC,Date,BOID,StartDate,UTCEndDateTime,UTCStartDateTime,OldNoOfStocks,NewNoOfStocks,AccSplitFactor,NeedSplit,AccSplitReady,timestamp,EventCode,EventName,Comment,EntitlementId
-36413097,2023-03-15 00:00:00,9037749,2013-12-02 00:00:00,2023-03-15 04:00:00,2013-12-02 05:00:00,0.9954000115394592,1.0,1.0,False,True,b'\x00\x00\x00\x04U a\xe1',10,Cash Dividend,Added due to cloning by StockSplitImport Service,-1
-36413097,2023-07-10 00:00:00,9086589,2023-03-15 00:00:00,2023-07-10 04:00:00,2023-03-15 04:00:00,1.0,1.0,1.0,False,True,b'\x00\x00\x00\x04U a\xe0',249,Change,Added due to cloning by StockSplitImport Service,-1
-36413097,2023-11-28 00:00:00,9147628,2023-07-10 00:00:00,2023-11-28 05:00:00,2023-07-10 04:00:00,0.9957789778709412,1.0,1.0,False,True,b'\x00\x00\x00\x04U a\xdf',10,Cash Dividend,,-1

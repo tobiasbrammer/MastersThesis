@@ -3,30 +3,49 @@ import polars as pl
 import re
 
 # Set environment variable for Rust backtrace
-os.environ['RUST_BACKTRACE'] = '1'
+os.environ["RUST_BACKTRACE"] = "1"
 
-# Get all files in data_raw
-files = [f for f in os.listdir('data_raw') if f.endswith('.csv')]
+# %% ################## CSV TO PARQUET ##################
+
+# # Get all files in data_raw_csv
+# files = [f for f in os.listdir('data_raw_csv') if f.endswith('.csv')]
+
+# # Convert each file to parquet
+# print('Converting CSV files to Parquet...')
+# for file in files:
+#     # Construct the file path
+#     file_path = os.path.join('data_raw_csv', file)
+#     # Read CSV file and try to parse dates
+#     df = pl.scan_csv(file_path)
+#     # Write to Parquet
+#     df.sink_parquet(file_path.replace('.csv', '.parquet'))
+#     del df, file, file_path
+
+files = [f for f in os.listdir("data_raw_parquet") if f.endswith(".parquet")]
 
 # Define the pattern using regular expression
-pattern = re.compile(r'_(.*?)-')
+pattern = re.compile(r"_(.*?)-")
 
-##################### PRICES #####################
+
+# %% ################## PRICES ##################
 
 # For files that begin with prices
-prices = sorted([f for f in files if f.startswith('prices')])
+prices = sorted([f for f in files if f.startswith("prices")])
 
 # Create an empty list to store DataFrames
 df_list = []
-numeric_cols = ['StockOpen', 'StockClose', 'StockHigh', 'StockLow', 'StockVol']
+numeric_cols = ["StockOpen", "StockClose", "StockHigh", "StockLow", "StockVol"]
+
+print("Reading files...")
 
 # Iterate over each file, add it to df_list
 for file in prices:
     # Construct the file path
-    file_path = os.path.join('data_raw', file)
+    file_path = os.path.join("data_raw_parquet", file)
     # Read CSV file and try to parse dates
-    df_temp = (pl.scan_csv(file_path)
-               .with_columns(**{col: pl.col(col).cast(pl.Float64) for col in numeric_cols}))
+    df_temp = pl.scan_parquet(file_path).with_columns(
+        **{col: pl.col(col).cast(pl.Float64) for col in numeric_cols}
+    )
     # Extract the ticker from the filename and add it as a column
     ticker = re.search(pattern, file).group(1)
     df_temp = df_temp.with_columns(pl.lit(ticker).alias("ticker"))
@@ -34,44 +53,58 @@ for file in prices:
     df_list.append(df_temp)
     del df_temp, file, file_path, ticker
 
-print('Concatenating dataframes...')
+print("Concatenating dataframes...")
 
 # Apply date/time transformations
 (
     pl.concat(df_list)
     .with_columns(
-        pl.col('StartTime').str.strptime(pl.Datetime, format='%Y-%m-%d %H:%M:%S').alias('datetime'),
-        pl.col('StartTime').str.strptime(pl.Datetime, format='%Y-%m-%d %H:%M:%S').cast(pl.Date).alias('date'),
-        pl.col('StartTime').str.strptime(pl.Datetime, format='%Y-%m-%d %H:%M:%S').cast(pl.Time).alias('time')
+        pl.col("StartTime")
+        .str.strptime(pl.Datetime, format="%Y-%m-%d %H:%M:%S")
+        .cast(pl.Datetime)
+        .alias("datetime"),
+        pl.col("StartTime")
+        .str.strptime(pl.Datetime, format="%Y-%m-%d %H:%M:%S")
+        .cast(pl.Date)
+        .alias("date"),
+        pl.col("StartTime")
+        .str.strptime(pl.Datetime, format="%Y-%m-%d %H:%M:%S")
+        .cast(pl.Time)
+        .alias("time"),
     )
-    .drop('StartTime')
-).sink_parquet('prices.parquet')
+    .drop("StartTime")
+).sink_parquet("prices.parquet")
 
 # Clean up unused variables
 del df_list
 
+print("Creating daily dataset...")
+
 # Scan parquet file, and create a LazyFrame
-lf = pl.scan_parquet('prices.parquet', low_memory=True)
+lf = pl.scan_parquet("prices.parquet")
 
 # Group by date and ticker and sum StockVol to get daily volume
-lf_dvol = lf.group_by(['date', 'ticker']).agg(pl.sum('StockVol').alias('daily_volume'))
+lf_dvol = lf.group_by(["date", "ticker"]).agg(
+    pl.sum("StockVol").cast(pl.Float64).alias("daily_volume")
+)
 
 # Only keep rows with time 20:59:00
-(lf
-    .filter(pl.col('time').str.contains('20:59:00'))
-    .join(lf_dvol, on=['date', 'ticker'])
-    .sink_parquet('prices_daily.parquet')
+lf_joined = lf.filter(pl.col("time").str.contains("20:59:00")).join(
+    lf_dvol, on=["date", "ticker"]
 )
 
 # Clear LazyFrame
 del lf, lf_dvol, numeric_cols, prices
 
-##################### COACS #####################
+lf_joined.collect().write_parquet("prices_daily.parquet")
 
-print('Getting CoACS...')
+del lf_joined
+# %% ################## COACS ##################
+
+print("Getting CoACS...")
 
 # For files that start with coacs
-coacs = [f for f in files if f.startswith('coacs')]
+coacs = [f for f in files if f.startswith("coacs")]
 
 # Create empty dataframe
 df_list = []
@@ -79,9 +112,9 @@ df_list = []
 # Iterate over each file, add it to df_list
 for file in coacs:
     # Construct the file path
-    file_path = os.path.join('data_raw', file)
+    file_path = os.path.join("data_raw_parquet", file)
     # Read CSV file and try to parse dates
-    df_temp = pl.scan_csv(file_path)
+    df_temp = pl.scan_parquet(file_path)
     # Extract the ticker from the filename and add it as a column
     ticker = re.search(pattern, file).group(1)
     df_temp = df_temp.with_columns(pl.lit(ticker).alias("ticker"))
@@ -93,17 +126,26 @@ for file in coacs:
 (
     pl.concat(df_list)
     .with_columns(
-        pl.col('Date').str.strptime(pl.Datetime, format='%Y-%m-%d %H:%M:%S').alias('datetime'),
-        pl.col('Date').str.strptime(pl.Datetime, format='%Y-%m-%d %H:%M:%S').cast(pl.Date).alias('date'),
-        pl.col('Date').str.strptime(pl.Datetime, format='%Y-%m-%d %H:%M:%S').cast(pl.Time).alias('time')
+        pl.col("Date")
+        .str.strptime(pl.Datetime, format="%Y-%m-%d %H:%M:%S")
+        .cast(pl.Datetime)
+        .alias("datetime"),
+        pl.col("Date")
+        .str.strptime(pl.Datetime, format="%Y-%m-%d %H:%M:%S")
+        .cast(pl.Date)
+        .alias("date"),
+        pl.col("Date")
+        .str.strptime(pl.Datetime, format="%Y-%m-%d %H:%M:%S")
+        .cast(pl.Time)
+        .alias("time"),
     )
-    .drop('Date')
-).sink_parquet('coacs.parquet')
+    .drop("Date")
+).sink_parquet("coacs.parquet")
 
 # Delete variables from workspace
 del df_list, coacs, files, pattern
 
-print('')
-print('')
-print('Done!')
-    
+print("")
+print("")
+print("")
+print("Done!")
