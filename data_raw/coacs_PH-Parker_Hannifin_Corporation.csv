@@ -1,2 +1,0 @@
-UIC,Date,BOID,StartDate,UTCEndDateTime,UTCStartDateTime,OldNoOfStocks,NewNoOfStocks,AccSplitFactor,NeedSplit,AccSplitReady,timestamp,EventCode,EventName,Comment,EntitlementId
-611,2023-05-11 00:00:00,9067911,2013-11-06 00:00:00,2023-05-11 04:00:00,2013-11-06 05:00:00,0.9954720139503479,1.0,1.0,False,True,b'\x00\x00\x00\x03\xefB\xec\x90',10,Cash Dividend,,-1

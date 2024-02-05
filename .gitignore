@@ -34,7 +34,10 @@
 ehthumbs.db
 Thumbs.db
 
-# Parquet files #
+# CSV-files #
 ######################
-*.parquet
+data_raw_csv/
 
+coacs.parquet
+prices.parquet
+prices_daily.parquet

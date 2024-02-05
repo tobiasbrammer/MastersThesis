@@ -5,16 +5,14 @@ from dropbox.files import WriteMode
 from io import BytesIO
 import subprocess
 import matplotlib.pyplot as plt
-import os
-import requests
 
 
-def upload(ax, project, path):
+def upload(fig, project, path):
     """Upload plt or tex to Overleaf
 
     Parameters
     ----------
-    ax : plt or tex
+    fig : plt or tex
         The plot or table to upload to Overleaf. For plt, it should be a Matplotlib plot object.
     project : str
         The name of the Overleaf project to upload to
@@ -24,13 +22,6 @@ def upload(ax, project, path):
     """
     bs = BytesIO()
     format = path.split(".")[-1]
-
-    # Check if the file is a .tex file and handle it differently
-    if format == "tex":
-        # Do nothing
-        pass
-    else:
-        ax.savefig(bs, bbox_inches="tight", format=format)
 
     # token = os.DROPBOX
     token = (
@@ -50,9 +41,12 @@ def upload(ax, project, path):
     if format == "tex":
         # Handle .tex files by directly uploading their content
         dbx.files_upload(
-            ax.encode(), f"/Apps/Overleaf/{project}/{path}", mode=WriteMode.overwrite
+            fig.encode(), f"/Apps/Overleaf/{project}/{path}", mode=WriteMode.overwrite
         )
     else:
+        # Save the Matplotlib figure to the BytesIO object in the correct format
+        # fig.savefig(bs, format=format)
+        # Upload the BytesIO content (the plot image) to Dropbox
         dbx.files_upload(
             bs.getvalue(), f"/Apps/Overleaf/{project}/{path}", mode=WriteMode.overwrite
         )
