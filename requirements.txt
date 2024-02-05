@@ -9,3 +9,4 @@ tensorflow>=2.15.0
 dropbox>=11.36.2
 seaborn>=0.13.2
 PyYAML>=6.0.1
+numba>=0.59.0

@@ -1,10 +1,13 @@
 import os
 import polars as pl
 import re
+from time import time
+from numba import njit
 
 # Set environment variable for Rust backtrace
 os.environ["RUST_BACKTRACE"] = "1"
 
+start = time()
 # %% ################## CSV TO PARQUET ##################
 
 # # Get all files in data_raw_csv
@@ -146,3 +149,4 @@ print("")
 print("")
 print("")
 print("Done!")
+print(f"Time elapsed: {time() - start:.2f} seconds")
