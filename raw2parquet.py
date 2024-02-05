@@ -94,8 +94,28 @@ del df_list
 
 print("Getting CoACS...")
 
+pattern = re.compile(r"_(.*?)-")
 # For files that start with coacs
 coacs = [f for f in files if f.startswith("coacs")]
+
+col_transforms = [
+    ("UIC", pl.Int64),
+    ("Date", pl.String),
+    ("BOID", pl.Int64),
+    ("StartDate", pl.String),
+    ("UTCEndDateTime", pl.String),
+    ("UTCStartDateTime", pl.String),
+    ("OldNoOfStocks", pl.Float64),
+    ("NewNoOfStocks", pl.Float64),
+    ("AccSplitFactor", pl.Float64),
+    ("NeedSplit", pl.Boolean),
+    ("AccSplitReady", pl.Boolean),
+    ("timestamp", pl.String),
+    ("EventCode", pl.String),
+    ("EventName", pl.String),
+    ("Comment", pl.String),
+    ("EntitlementId", pl.String),
+]
 
 # Create empty dataframe
 df_list = []
@@ -106,13 +126,16 @@ for file in coacs:
     file_path = os.path.join("data_raw_parquet", file)
     # Read CSV file and try to parse dates
     df_temp = pl.scan_parquet(file_path)
-    # Extract the ticker from the filename and add it as a column
     ticker = re.search(pattern, file).group(1)
-    df_temp = df_temp.with_columns(pl.lit(ticker).alias("ticker"))
+    # Ensure columns are of the correct type. #
+    for col, dt in col_transforms:
+        df_temp = df_temp.with_columns(pl.col(col).cast(dt))
+    df_temp = df_temp.with_columns(pl.lit(ticker).alias("ticker")).drop(
+        "UTCEndDateTime", "UTCStartDateTime", "timestamp", "Comment", "EntitlementId"
+    )
     # Add df_temp to df_list
     df_list.append(df_temp)
-    del df_temp, file, file_path, ticker
-
+    del df_temp, file, file_path, ticker, dt, col
 
 (
     pl.concat(df_list)
@@ -141,9 +164,6 @@ for file in coacs:
     )
     .drop("Date")
 ).sink_parquet("coacs.parquet")
-
-# Delete variables from workspace
-del df_list, coacs, files, pattern
 
 print("")
 print("")
