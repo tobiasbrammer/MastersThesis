@@ -2,11 +2,15 @@ import polars as pl
 import matplotlib.pyplot as plt
 import seaborn as sns
 from upload_overleaf.upload import upload
+from time import time
 import os
+
+# Set environment variable for Rust backtrace
+os.environ["RUST_BACKTRACE"] = "1"
+# Suppress tensorflow warnings
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-import tensorflow as tf
 
-
+start = time()
 
 #%%
 # The following cell reads the parquet files created by raw2parquet.py.
@@ -88,7 +92,7 @@ lf_intraday = (
 
 #%% ################## Save to parquet ##################
 print("Saving intraday returns to parquet...")
-lf_intraday.sink_parquet('intraday.parquet')
+lf_intraday.collect().write_parquet('intraday.parquet')
 
 #%% ################## Daily ##################
 print("Calculating daily returns...")
@@ -115,4 +119,11 @@ lf_daily = (
 
 #%% ################## Save to parquet ##################
 print("Saving daily returns to parquet...")
-lf_daily.sink_parquet('daily.parquet')
+lf_daily.collect().write_parquet('daily.parquet')
+
+print("")
+print("")
+print("")
+print("Done!")
+print(f"Time elapsed: {time() - start:.2f} seconds")
+
