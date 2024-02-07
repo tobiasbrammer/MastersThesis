@@ -2,7 +2,6 @@ import os
 import polars as pl
 import re
 from time import time
-from numba import njit
 
 # Set environment variable for Rust backtrace
 os.environ["RUST_BACKTRACE"] = "1"
