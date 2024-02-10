@@ -1,7 +1,8 @@
 import os
-import polars as pl
 import re
 from time import time
+
+import polars as pl
 
 # Set environment variable for Rust backtrace
 os.environ["RUST_BACKTRACE"] = "1"
@@ -88,6 +89,8 @@ print("Concatenating dataframes...")
 (
     pl.concat(df_list)
     .with_columns(
+        pl.col("StockClose").cast(pl.Float32).alias("StockClose"),
+        pl.col("StockVol").cast(pl.Float32).alias("StockVol"),
         pl.col("StartTime")
         .str.strptime(
             pl.Datetime(time_unit="us", time_zone="Europe/Copenhagen"),
