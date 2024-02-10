@@ -12,7 +12,6 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 start = time()
 
-#%%
 # The following cell reads the parquet files created by raw2parquet.py.
 
 # It joins the prices and coacs tables on the ticker and date columns.
@@ -27,6 +26,7 @@ print("Reading parquet files...")
 lf_intraday = (
     pl.scan_parquet('prices.parquet')
     .join(pl.scan_parquet('coacs.parquet').select(['ticker','date','OldNoOfStocks']), on=['ticker', 'date'], how='left')
+
     # If there is not a match in the coacs table, the OldNoOfStocks is set to 1.
     .with_columns(pl.when(pl.col('OldNoOfStocks').is_null()).then(1).otherwise(pl.col('OldNoOfStocks')).alias('OldNoOfStocks'))
     # Multiply StockOpen, StockHigh, StockLow, and StockClose with OldNoOfStocks to get the adjusted price
