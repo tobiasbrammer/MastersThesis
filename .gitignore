@@ -36,12 +36,10 @@ Thumbs.db
 
 # CSV-files #
 ######################
-data_raw_csv/
+#data_raw_csv/
 
 coacs.parquet
 prices.parquet
 prices_daily.parquet
 intraday.parquet
 daily.parquet
-daily.parquet
-intraday.parquet
