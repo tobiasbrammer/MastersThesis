@@ -1,9 +1,7 @@
 import polars as pl
-import matplotlib.pyplot as plt
-import seaborn as sns
-from upload_overleaf.upload import upload
 from time import time
 import os
+import re
 
 # Set environment variable for Rust backtrace
 os.environ["RUST_BACKTRACE"] = "1"
@@ -26,7 +24,7 @@ for file in files:
     # Read CSV file and try to parse dates
     df = pl.scan_csv(file_path)
     # Write to Parquet
-    df.sink_parquet(file_path.replace(".csv", ".parquet"))
+    df.sink_parquet(file_path.replace("csv", "parquet"))
     del df, file, file_path
 
 files = [f for f in os.listdir("data_raw_parquet") if f.endswith(".parquet")]
