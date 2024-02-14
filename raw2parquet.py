@@ -18,19 +18,12 @@ print('Converting CSV files to Parquet...')
 for file in files:
     # Construct the file path
     file_path = os.path.join('data_raw_csv', file)
-    # If file path contains Visa, skip it
-    #if 'Visa' in file_path:
-    #    continue
-    #if 'Interpublic_Group' in file_path:
-    #    continue
     # Read CSV file and try to parse dates
     df = pl.scan_csv(file_path)
     # Write to Parquet
     print(f'Converted {file_path.replace("csv", "parquet")}')
     df.sink_parquet(file_path.replace('csv', 'parquet'))
     del df, file, file_path
-
-
 
 # %% ################## PRICES ##################
 files = [f for f in os.listdir("data_raw_parquet") if f.endswith(".parquet")]
