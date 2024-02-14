@@ -287,6 +287,7 @@ lf_intraday.collect().write_parquet("intraday.parquet")
 
 # %% ################## Daily ##################
 print("Calculating daily returns...")
+
 # Group by date and ticker and sum volume to get daily volume
 lf_daily = (
     lf_intraday.group_by(["ticker", "date"])
