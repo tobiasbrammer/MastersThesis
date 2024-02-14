@@ -1,15 +1,12 @@
 import polars as pl
-import matplotlib.pyplot as plt
-import seaborn as sns
-from upload_overleaf.upload import upload
 from time import time
 import os
+import re
 
 # Set environment variable for Rust backtrace
 os.environ["RUST_BACKTRACE"] = "1"
 # Suppress tensorflow warnings
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
-
 
 start = time()
 
@@ -26,7 +23,7 @@ for file in files:
     # Read CSV file and try to parse dates
     df = pl.scan_csv(file_path)
     # Write to Parquet
-    df.sink_parquet(file_path.replace(".csv", ".parquet"))
+    df.sink_parquet(file_path.replace("csv", "parquet"))
     del df, file, file_path
 
 files = [f for f in os.listdir("data_raw_parquet") if f.endswith(".parquet")]
@@ -290,7 +287,8 @@ lf_intraday.collect().write_parquet("intraday.parquet")
 
 # %% ################## Daily ##################
 print("Calculating daily returns...")
-# Group by date and ticker and sum volumne to get daily volume
+
+# Group by date and ticker and sum volume to get daily volume
 lf_daily = (
     lf_intraday.group_by(["ticker", "date"])
     .agg(
