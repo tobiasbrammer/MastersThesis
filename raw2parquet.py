@@ -10,18 +10,18 @@ start = time()
 # %% ################## CSV TO PARQUET ##################
 
 # # Get all files in data_raw_csv
-# files = [f for f in os.listdir('data_raw_csv') if f.endswith('.csv')]
+files = [f for f in os.listdir('data_raw_csv') if f.endswith('.csv')]
 
 # # Convert each file to parquet
-# print('Converting CSV files to Parquet...')
-# for file in files:
-#     # Construct the file path
-#     file_path = os.path.join('data_raw_csv', file)
-#     # Read CSV file and try to parse dates
-#     df = pl.scan_csv(file_path)
-#     # Write to Parquet
-#     df.sink_parquet(file_path.replace('.csv', '.parquet'))
-#     del df, file, file_path
+print('Converting CSV files to Parquet...')
+for file in files:
+     # Construct the file path
+     file_path = os.path.join('data_raw_csv', file)
+     # Read CSV file and try to parse dates
+     df = pl.scan_csv(file_path)
+     # Write to Parquet
+     df.sink_parquet(file_path.replace('.csv', '.parquet'))
+     del df, file, file_path
 
 files = [f for f in os.listdir("data_raw_parquet") if f.endswith(".parquet")]
 
