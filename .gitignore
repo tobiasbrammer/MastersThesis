@@ -44,3 +44,4 @@ prices_daily.parquet
 intraday.parquet
 daily.parquet
 
+/data_raw_parquet/
