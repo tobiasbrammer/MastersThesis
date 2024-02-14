@@ -8,7 +8,6 @@ os.environ["RUST_BACKTRACE"] = "1"
 # Suppress tensorflow warnings
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
-
 start = time()
 
 # %% ################## CSV TO PARQUET ##################
@@ -288,7 +287,7 @@ lf_intraday.collect().write_parquet("intraday.parquet")
 
 # %% ################## Daily ##################
 print("Calculating daily returns...")
-# Group by date and ticker and sum volumne to get daily volume
+# Group by date and ticker and sum volume to get daily volume
 lf_daily = (
     lf_intraday.group_by(["ticker", "date"])
     .agg(
