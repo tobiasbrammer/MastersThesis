@@ -10,3 +10,4 @@ dropbox>=11.36.2
 seaborn>=0.13.2
 PyYAML>=6.0.1
 numba>=0.59.0
+pyarrow>=14.0.0
