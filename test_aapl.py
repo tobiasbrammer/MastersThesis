@@ -10,8 +10,6 @@ import tensorflow as tf
 
 print(f'TensorFlow has access to the following devices:\n{tf.config.list_physical_devices()}')
 
-
-
 lf_intraday = (
     pl.scan_parquet('prices.parquet')
     .join(pl.scan_parquet('coacs.parquet').select(['ticker','date','OldNoOfStocks']), on=['ticker', 'date'], how='left')
@@ -89,7 +87,9 @@ lf_daily = (
 
 df_aapl = lf_daily.filter(pl.col('ticker') == 'AAPL').collect().to_pandas()
 
+
 print(df_aapl.head())
+
 
 # Plot time series of StockClose
 plt.figure(figsize=(15,10))
@@ -107,3 +107,4 @@ ax.set_xlabel('Date')
 upload(plt, "Master's Thesis", 'figures/aapl_test.png')
 
 print('Done')
+
