@@ -33,8 +33,8 @@ lf_intraday = (
         .otherwise(pl.col("OldNoOfStocks"))
         .alias("OldNoOfStocks")
     )
-    # Fill missing values in OldNoOfStocks with strategy 'forward fill'
-    .with_columns(pl.col("OldNoOfStocks").fill_null(strategy="forward"))
+    # Fill missing values in OldNoOfStocks with strategy 'backward'
+    .with_columns(pl.col("OldNoOfStocks").fill_null(strategy="backward"))
     # Multiply StockOpen, StockHigh, StockLow, and StockClose with OldNoOfStocks to get the adjusted price
     .with_columns((pl.col("StockClose") * pl.col("OldNoOfStocks")).alias("AdjStockClose"))
     .with_columns(
