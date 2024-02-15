@@ -115,6 +115,7 @@ lf_daily = (
     .agg(
         pl.last("datetime").alias("datetime"),
         pl.last("log_close").cast(pl.Float64),
+        pl.last("adj_log_close").cast(pl.Float64),
         pl.sum("volume")
         .cast(pl.Float64)
         .alias("volume"),  # Sum volume to get daily volume
