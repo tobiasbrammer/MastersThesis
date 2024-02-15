@@ -13,8 +13,11 @@ print(f'TensorFlow has access to the following devices:\n{tf.config.list_physica
 lf_intraday = (
     pl.scan_parquet('prices.parquet')
     .join(pl.scan_parquet('coacs.parquet').select(['ticker','date','OldNoOfStocks']), on=['ticker', 'date'], how='left')
-    # If there is not a match in the coacs table, the OldNoOfStocks is set to 1.
-    .with_columns(pl.when(pl.col('OldNoOfStocks').is_null()).then(1).otherwise(pl.col('OldNoOfStocks')).alias('OldNoOfStocks'))
+    .with_columns(pl.when(pl.col('date') == pl.col('date').shift(1)).then(0).otherwise(1).alias('first_obs'))
+    # If first_obs is 1 then set OldNoOfStocks = 1
+    .with_columns(pl.when(pl.col('first_obs') == 1).then(1).otherwise(pl.col('OldNoOfStocks')).alias('OldNoOfStocks'))
+    # Fill missing values in OldNoOfStocks with strategy 'forward fill'
+    .with_columns(pl.col('OldNoOfStocks').fill_null(strategy='forward'))
     # Multiply StockOpen, StockHigh, StockLow, and StockClose with OldNoOfStocks to get the adjusted price
     .with_columns([
         pl.col('StockClose') * pl.col('OldNoOfStocks').alias('StockClose')
@@ -63,6 +66,8 @@ lf_intraday = (
     ])
     ), on='datetime', how='left')
 )
+
+df = lf_intraday.fetch().to_pandas()
 
  # Group by date and ticker and sum volumne to get daily volume
 lf_daily = (
