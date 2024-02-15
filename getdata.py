@@ -8,6 +8,7 @@ os.environ["RUST_BACKTRACE"] = "1"
 # Suppress tensorflow warnings
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
+
 # TODO: Check stability. Sometimes the script fails to read the parquet files.
 
 start = time()
