@@ -115,7 +115,7 @@ lf_daily = (
         pl.last("datetime").alias("datetime"),
         pl.last("log_close").cast(pl.Float32),
         pl.last("adj_log_close").cast(pl.Float32),
-        pl.last("AdjStockClose").cast(pl.Float32),
+        pl.last("OldNoOfStocks").cast(pl.Float32),
         pl.sum("volume").cast(pl.Float64).alias("volume"),  # Sum volume to get daily volume
     )
     .group_by(["ticker", "date"])
@@ -126,7 +126,7 @@ lf_daily = (
             "ticker",
             "date",
             "datetime",
-            "AdjStockClose",
+            "OldNoOfStocks",
             "adj_log_close",
             "log_close",
             "volume",
@@ -151,7 +151,7 @@ plt.figure(figsize=(15, 10))
 # Add second y-axis. Left is log price and right is return
 ax = sns.lineplot(x="date", y="log_close", data=df_aapl, color="red")
 ax2 = ax.twinx()
-ax = sns.lineplot(x="date", y="adj_log_close", data=df_aapl, color="green")
+ax = sns.lineplot(x="date", y="OldNoOfStocks", data=df_aapl, color="green")
 # Disable grid
 ax.grid(False)
 ax2.grid(False)
