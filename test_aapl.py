@@ -20,12 +20,13 @@ lf_intraday = (
     .with_columns(pl.col('OldNoOfStocks').fill_null(strategy='forward'))
     # Multiply StockOpen, StockHigh, StockLow, and StockClose with OldNoOfStocks to get the adjusted price
     .with_columns([
-        pl.col('StockClose') * pl.col('OldNoOfStocks').alias('StockClose')
+        pl.col('StockClose') * pl.col('OldNoOfStocks').alias('AdjStockClose')
     ])
     .with_columns([
         pl.col('ticker'),
         pl.col('date').alias('date'),
         pl.col('datetime').alias('datetime'),
+        pl.col('AdjStockClose').log().alias('adj_log_close'),
         pl.col('StockClose').log().alias('log_close'),
         pl.col('StockVol').alias('volume')
     ])
@@ -35,6 +36,7 @@ lf_intraday = (
         'date',
         'datetime',
         'log_close',
+        'adj_log_close',
         'volume',
         (pl.col('log_close') - pl.col('log_close').shift(1)).over(pl.col('ticker')).alias('return_1min'),
         (pl.col('log_close') - pl.col('log_close').shift(5)).over(pl.col('ticker')).alias('return_5min'),
@@ -84,8 +86,10 @@ lf_daily = (
         'ticker',
         'date',
         'datetime',
+        'adj_log_close',
         'log_close',
         'volume',
+        (pl.col('adj_log_close') - pl.col('adj_log_close').shift(1)).over(pl.col('ticker')).alias('adj_return_1d'),
         (pl.col('log_close') - pl.col('log_close').shift(1)).over(pl.col('ticker')).alias('return_1d')
     ])
 )
@@ -99,15 +103,15 @@ print(df_aapl.head())
 # Plot time series of StockClose
 plt.figure(figsize=(15,10))
 # Add second y-axis. Left is log price and right is return
-ax = sns.lineplot(x='date', y='log_close', data=df_aapl, color='cornflowerblue')
+ax = sns.lineplot(x='date', y='log_close', data=df_aapl, color='red')
 ax2 = ax.twinx()
-sns.lineplot(x='date', y='volume', data=df_aapl, color='red', ax=ax2, alpha=0.5)
+ax = sns.lineplot(x='date', y='adj_log_close', data=df_aapl, color='green')
 # Disable grid
 ax.grid(False)
 ax2.grid(False)
 ax.set_title('AAPL Stock Price and Volume')
 ax.set_ylabel('Log Price')
-ax2.set_ylabel('Volume')
+ax2.set_ylabel('Adj Log Price')
 ax.set_xlabel('Date')
 upload(plt, "Master's Thesis", 'figures/aapl_test.png')
 
