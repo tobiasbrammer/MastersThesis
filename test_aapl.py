@@ -53,6 +53,7 @@ lf_intraday = (
             "ticker",
             "date",
             "datetime",
+            "OldNoOfStocks",
             "log_close",
             "adj_log_close",
             "volume",
@@ -107,18 +108,15 @@ lf_intraday = lf_intraday.join(
     how="left",
 )
 
-df = lf_intraday.fetch().to_pandas()
-
 # Group by date and ticker and sum volumne to get daily volume
 lf_daily = (
     lf_intraday.group_by(["ticker", "date"])
     .agg(
         pl.last("datetime").alias("datetime"),
-        pl.last("log_close").cast(pl.Float64),
-        pl.last("adj_log_close").cast(pl.Float64),
-        pl.sum("volume")
-        .cast(pl.Float64)
-        .alias("volume"),  # Sum volume to get daily volume
+        pl.last("log_close").cast(pl.Float32),
+        pl.last("adj_log_close").cast(pl.Float32),
+        pl.last("AdjStockClose").cast(pl.Float32),
+        pl.sum("volume").cast(pl.Float64).alias("volume"),  # Sum volume to get daily volume
     )
     .group_by(["ticker", "date"])
     .last()  # Select the last row in each group
@@ -128,6 +126,7 @@ lf_daily = (
             "ticker",
             "date",
             "datetime",
+            "AdjStockClose",
             "adj_log_close",
             "log_close",
             "volume",
