@@ -91,6 +91,10 @@ print("Concatenating dataframes...")
     .drop("StartTime")
 ).sink_parquet("prices.parquet")
 
+print("")
+print("Finished saving prices.parquet")
+print("")
+
 # Clean up unused variables
 del df_list
 
@@ -170,7 +174,7 @@ for file in coacs:
 ).sink_parquet("coacs.parquet")
 
 print("")
-print("")
+print("Finished saving coacs.parquet")
 print("")
 
 # The following cell reads the parquet files created by raw2parquet.py.
@@ -182,14 +186,19 @@ print("")
 
 # It applies the log transformation to the adjusted prices, and the calculates the log return for each ticker.
 # The log return is calculated for the following time intervals: 1, 5, 10, 30, 60, 120, 240, and 390 minutes.
+print("Creating intraday returns...")
+print("Reading prices.parquet and coacs.parquet...")
 
-print("Reading parquet files...")
 lf_intraday = (
     pl.scan_parquet("prices.parquet")
     .join(
         pl.scan_parquet("coacs.parquet").select(["ticker", "date", "OldNoOfStocks"]),
         on=["ticker", "date"],
         how="left",
+    )
+    # Backfill OldNoOfStocks until the next value is found
+    .with_columns(
+        pl.col("OldNoOfStocks").fill_none().over(pl.col("ticker")).alias("OldNoOfStocks")
     )
     # If there is not a match in the coacs table, the OldNoOfStocks is set to 1.
     .with_columns(
