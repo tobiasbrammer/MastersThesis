@@ -4,73 +4,13 @@ import os
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
 import polars as pl
-import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from upload_overleaf.upload import upload
-import tensorflow as tf
-from datetime import datetime
 
-
-print(
-    f"TensorFlow has access to the following devices:\n{tf.config.list_physical_devices()}"
-)
-#
-# # %% # Load prices and coacs data
-# lf_intraday = (
-#     pl.scan_parquet("prices.parquet")
-#     .join(
-#         pl.scan_parquet("coacs.parquet").select(["ticker", "date", "OldNoOfStocks"]),
-#         on=["ticker", "date"],
-#         how="left",
-#     )
-#     .sort(["ticker", "datetime"])
-#     .with_columns(
-#         pl.when(pl.col("ticker").shift(1) != pl.col("ticker"))
-#         .then(1)
-#         .otherwise(0)
-#         .alias("first_obs")
-#     )
-#     .with_columns(
-#         pl.when(pl.col("first_obs") == 1)
-#         .then(1)
-#         .otherwise(pl.col("OldNoOfStocks"))
-#         .alias("OldNoOfStocks")
-#     )
-#     .with_columns(
-#         pl.col("OldNoOfStocks").fill_null(strategy="forward").alias("OldNoOfStocks")
-#     )
-#     .with_columns(
-#         (pl.col("StockClose") / pl.col("OldNoOfStocks")).alias("AdjStockClose")
-#     )
-#     .with_columns(
-#         [
-#             pl.col("datetime")
-#             .cast(pl.Datetime)
-#             .dt.replace_time_zone("America/New_York"),
-#             pl.col("StockClose").log().alias("log_close"),
-#             pl.col("AdjStockClose").log().alias("adj_log_close"),
-#             pl.col("StockVol").alias("volume"),
-#         ]
-#     )
-#     .select(
-#         [
-#             "ticker",
-#             "date",
-#             "datetime",
-#             "OldNoOfStocks",
-#             "StockClose",
-#             "AdjStockClose",
-#             "log_close",
-#             "adj_log_close",
-#             "volume",
-#         ]
-#     )
-# )
-
-
-# %%
+# Load the data
 lf = pl.scan_parquet("daily.parquet")
+
 
 def plotAdjvsNonAdj(ticker: str, lf: pl.LazyFrame):
     """
@@ -96,7 +36,9 @@ def plotAdjvsNonAdj(ticker: str, lf: pl.LazyFrame):
     ax2 = ax.twinx()
 
     # Plotting the second line on the twin axis
-    ax2 = sns.lineplot(x="date", y="adj_log_close", data=df, color="orange", label="Adj Log Close")
+    ax2 = sns.lineplot(
+        x="date", y="adj_log_close", data=df, color="orange", label="Adj Log Close"
+    )
 
     # Get lowest value of log_close
     low = min([df["log_close"].min(), df["adj_log_close"].min()])
@@ -131,7 +73,7 @@ def plotAdjvsNonAdj(ticker: str, lf: pl.LazyFrame):
     ax2.get_legend().remove()
 
     # Adding labels and title
-    ax.set_title(f"Time Series Analysis of {ticker} Stock: Logarithmic and Adjusted Logarithmic Closing Prices")
+    ax.set_title(f"Logarithmic and Adjusted Logarithmic Closing Prices for {ticker}")
     ax.set_xlabel("Date")
     ax.set_ylabel("Logarithmic Closing Price")
     ax2.set_ylabel("Adjusted Logarithmic Closing Price")
@@ -139,10 +81,8 @@ def plotAdjvsNonAdj(ticker: str, lf: pl.LazyFrame):
     # Formatting date labels
     ax.xaxis.set_major_formatter(plt.matplotlib.dates.DateFormatter("%Y-%m-%d"))
     # Upload to Overleaf
-    upload(plt, "Master's Thesis", f"figures/{ticker}_test.png")
+    upload(plt, "Master's Thesis", f"figures/{ticker.lower()}_close.png")
 
-
-#%%
 
 # Get input from user
 ticker = input("Enter ticker symbol: ").upper()
@@ -151,5 +91,3 @@ ticker = input("Enter ticker symbol: ").upper()
 plotAdjvsNonAdj(ticker, lf)
 
 print(f"Figure for {ticker} has been uploaded to Overleaf.")
-# %%
-
