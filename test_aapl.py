@@ -98,11 +98,21 @@ def plotAdjvsNonAdj(ticker: str, lf: pl.LazyFrame):
     # Plotting the second line on the twin axis
     ax2 = sns.lineplot(x="date", y="adj_log_close", data=df, color="orange", label="Adj Log Close")
 
+    # Get lowest value of log_close
+    low = min([df["log_close"].min(), df["adj_log_close"].min()])
+    # If low is inf, -inf or nan, set to 2
+    if low in [float("inf"), float("-inf"), float("nan")]:
+        low = 2
+
+    # Get highest value of log_close
+    high = max([df["log_close"].max(), df["adj_log_close"].max()])
+    # If high is inf, -inf or nan, set to 10
+    if high in [float("inf"), float("-inf"), float("nan")]:
+        high = 10
+
     # Adjusting y-axis limits
-    lower_bound = 0
-    upper_bound = 10
-    ax.set_ylim(lower_bound, upper_bound)
-    ax2.set_ylim(lower_bound, upper_bound)
+    ax.set_ylim(low, high)
+    ax2.set_ylim(low, high)
 
     # Adding grid lines
     ax.grid(True, linestyle="--", alpha=0.7)
@@ -132,7 +142,7 @@ def plotAdjvsNonAdj(ticker: str, lf: pl.LazyFrame):
 #%%
 
 # Get input from user
-ticker = input("Enter ticker symbol: ")
+ticker = input("Enter ticker symbol: ").upper()
 
 # Plot the time series analysis
 plotAdjvsNonAdj(ticker, lf)
