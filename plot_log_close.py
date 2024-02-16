@@ -56,11 +56,17 @@ def plotAdjvsNonAdj(ticker: str, lf: pl.LazyFrame):
         if low in [float("inf"), float("-inf"), float("nan")]:
             low = 4
 
+    # Add 10% padding to low
+    low = low - (0.1 * low)
+
     # Get highest value of log_close
     high = max([df["log_close"].max(), df["adj_log_close"].max()])
     # If high is inf, -inf or nan, set to 10
     if high in [float("inf"), float("-inf"), float("nan")]:
         high = 10
+
+    # Add 10% padding to high
+    high = high + (0.1 * high)
 
     # Adjusting y-axis limits
     ax.set_ylim(low, high)
