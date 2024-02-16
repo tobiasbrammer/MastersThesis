@@ -51,7 +51,7 @@ for file in prices:
     file_path = os.path.join("data_raw_parquet", file)
     # Read CSV file and try to parse dates
     df_temp = pl.scan_parquet(file_path).with_columns(
-        **{col: pl.col(col).cast(pl.Float64) for col in numeric_cols}
+        **{col: pl.col(col).cast(pl.Float32) for col in numeric_cols}
     )
     # Extract the ticker from the filename and add it as a column
     ticker = re.search(pattern, file).group(1)
@@ -113,9 +113,9 @@ col_transforms = [
     ("StartDate", pl.String),
     ("UTCEndDateTime", pl.String),
     ("UTCStartDateTime", pl.String),
-    ("OldNoOfStocks", pl.Float64),
-    ("NewNoOfStocks", pl.Float64),
-    ("AccSplitFactor", pl.Float64),
+    ("OldNoOfStocks", pl.Float32),
+    ("NewNoOfStocks", pl.Float32),
+    ("AccSplitFactor", pl.Float32),
     ("NeedSplit", pl.Boolean),
     ("AccSplitReady", pl.Boolean),
     ("timestamp", pl.String),
@@ -325,9 +325,10 @@ lf_daily = (
     lf_intraday.group_by(["ticker", "date"])
     .agg(
         pl.last("datetime").alias("datetime"),
-        pl.last("log_close").cast(pl.Float64),
+        pl.last("log_close").cast(pl.Float32),
+        pl.last("adj_log_close").cast(pl.Float32),
         pl.sum("volume")
-        .cast(pl.Float64)
+        .cast(pl.Float32)
         .alias("volume"),  # Sum volume to get daily volume
     )
     .group_by(["ticker", "date"])
@@ -339,6 +340,7 @@ lf_daily = (
             "date",
             "datetime",
             "log_close",
+            "adj_log_close",
             "volume",
             (pl.col("log_close") - pl.col("log_close").shift(1))
             .over(pl.col("ticker"))
