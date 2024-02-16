@@ -88,31 +88,40 @@ def plotAdjvsNonAdj(ticker: str, lf: pl.LazyFrame):
     df = lf.filter(pl.col("ticker") == ticker).collect().to_pandas()
     # Set up the figure and axes
     plt.figure(figsize=(12, 8))
+
+    # Plotting the first line
     ax = sns.lineplot(x="date", y="log_close", data=df, color="blue", label="Log Close")
+
+    # Creating a twin axis for the second line
     ax2 = ax.twinx()
-    ax2 = sns.lineplot(
-        x="date", y="adj_log_close", data=df, color="orange", label="Adj Log Close"
-    )
+
+    # Plotting the second line on the twin axis
+    ax2 = sns.lineplot(x="date", y="adj_log_close", data=df, color="orange", label="Adj Log Close")
+
     # Adjusting y-axis limits
-    # Get lower and upper bounds
     lower_bound = 0
     upper_bound = 10
     ax.set_ylim(lower_bound, upper_bound)
     ax2.set_ylim(lower_bound, upper_bound)
+
     # Adding grid lines
     ax.grid(True, linestyle="--", alpha=0.7)
     ax2.grid(False)
-    # Adding a legend
+
+    # Adding a single legend for both axes
     lines, labels = ax.get_legend_handles_labels()
     lines2, labels2 = ax2.get_legend_handles_labels()
-    ax.legend(lines + lines2, labels + labels2, loc="upper left")
+
+    # Combine labels from both axes
+    combined_labels = labels + labels2
+    ax.legend(lines + lines2, combined_labels, loc="upper left")
+
     # Adding labels and title
-    ax.set_title(
-        f"Time Series Analysis of {ticker} Stock: Logarithmic and Adjusted Logarithmic Closing Prices"
-    )
+    ax.set_title(f"Time Series Analysis of {ticker} Stock: Logarithmic and Adjusted Logarithmic Closing Prices")
     ax.set_xlabel("Date")
     ax.set_ylabel("Logarithmic Closing Price")
     ax2.set_ylabel("Adjusted Logarithmic Closing Price")
+
     # Formatting date labels
     ax.xaxis.set_major_formatter(plt.matplotlib.dates.DateFormatter("%Y-%m-%d"))
     # Upload to Overleaf
