@@ -8,6 +8,12 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from upload_overleaf.upload import upload
 
+# Load color palette from vColor.txt.txt
+with open("vColor.txt", "r") as f:
+    vColor = f.read().splitlines()
+    sns.set_palette(vColor)
+
+
 # Load the data
 lf = pl.scan_parquet("daily.parquet")
 
@@ -30,15 +36,16 @@ def plotAdjvsNonAdj(ticker: str, lf: pl.LazyFrame):
     plt.figure(figsize=(12, 8))
 
     # Plotting the first line
-    ax = sns.lineplot(x="date", y="log_close", data=df, color="blue", label="Log Close")
+    ax = sns.lineplot(x="date", y="log_close", data=df, label="Log Close",
+                      color=sns.color_palette()[0])
 
     # Creating a twin axis for the second line
     ax2 = ax.twinx()
 
     # Plotting the second line on the twin axis
     ax2 = sns.lineplot(
-        x="date", y="adj_log_close", data=df, color="orange", label="Adj Log Close"
-    )
+        x="date", y="adj_log_close", data=df, label="Adj Log Close",
+        color=sns.color_palette()[1])
 
     # Get lowest value of log_close
     low = min([df["log_close"].min(), df["adj_log_close"].min()])
