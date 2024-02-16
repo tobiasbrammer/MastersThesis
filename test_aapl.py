@@ -121,5 +121,5 @@ def plotAdjvsNonAdj(ticker: str, lf: pl.LazyFrame):
 
 
 #%%
-plotAdjvsNonAdj("AAPL")
-plotAdjvsNonAdj("TSLA")
+plotAdjvsNonAdj("AAPL", lf)
+plotAdjvsNonAdj("TSLA", lf)
