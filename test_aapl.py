@@ -95,8 +95,8 @@ def plotAdjvsNonAdj(ticker: str, lf: pl.LazyFrame):
     )
     # Adjusting y-axis limits
     # Get lower and upper bounds
-    lower_bound = min(df["log_close"].min(), df["adj_log_close"].min())
-    upper_bound = max(df["log_close"].max(), df["adj_log_close"].max())
+    lower_bound = 0
+    upper_bound = 10
     ax.set_ylim(lower_bound, upper_bound)
     ax2.set_ylim(lower_bound, upper_bound)
     # Adding grid lines
