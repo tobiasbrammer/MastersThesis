@@ -70,7 +70,6 @@ print(
 
 
 # %%
-
 lf = pl.scan_parquet("daily.parquet")
 
 def plotAdjvsNonAdj(ticker: str, lf: pl.LazyFrame):
@@ -121,5 +120,13 @@ def plotAdjvsNonAdj(ticker: str, lf: pl.LazyFrame):
 
 
 #%%
-plotAdjvsNonAdj("AAPL", lf)
-plotAdjvsNonAdj("TSLA", lf)
+
+# Get input from user
+ticker = input("Enter ticker symbol: ")
+
+# Plot the time series analysis
+plotAdjvsNonAdj(ticker, lf)
+
+print(f"Figure for {ticker} has been uploaded to Overleaf.")
+# %%
+
