@@ -100,9 +100,12 @@ def plotAdjvsNonAdj(ticker: str, lf: pl.LazyFrame):
 
     # Get lowest value of log_close
     low = min([df["log_close"].min(), df["adj_log_close"].min()])
-    # If low is inf, -inf or nan, set to 2
+    # If low is inf, -inf or nan, set to second lowest value
     if low in [float("inf"), float("-inf"), float("nan")]:
-        low = 2
+        low = df["log_close"].sort_values().unique()[1]
+        # If low is inf, -inf or nan, set to 2
+        if low in [float("inf"), float("-inf"), float("nan")]:
+            low = 4
 
     # Get highest value of log_close
     high = max([df["log_close"].max(), df["adj_log_close"].max()])
