@@ -45,3 +45,4 @@ intraday.parquet
 daily.parquet
 
 /data_raw_parquet/
+/.idea/jupyter-settings.xml
