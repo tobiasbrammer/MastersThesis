@@ -115,6 +115,7 @@ def plotAdjvsNonAdj(ticker: str, lf: pl.LazyFrame):
     # Combine labels from both axes
     combined_labels = labels + labels2
     ax.legend(lines + lines2, combined_labels, loc="upper left")
+    ax2.get_legend().remove()
 
     # Adding labels and title
     ax.set_title(f"Time Series Analysis of {ticker} Stock: Logarithmic and Adjusted Logarithmic Closing Prices")
