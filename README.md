@@ -12,6 +12,4 @@ In the pursuit of advancing and refining deep learning techniques for statistica
       * In adapting the model for high-frequency intraday data, how effectively does it address the challenges specific to intraday trading, such as transaction costs and market dynamics?
       * What insights are gained into the model's behavior under high-frequency conditions, and how does its performance compare to the daily version in terms of risk-adjusted returns?
 
-3. Integration of Multivariate GARCH and Copulas
-      * How does the incorporation of multivariate GARCH models and copulas into the deep learning model impact market neutrality and improve predictions of intraday US equity movements?
-      * What statistical evidence supports the enhanced model's performance, and how does it compare to the baseline model in terms of risk-adjusted returns?
+3. Sensitivity Analysis of Transaction Costs and Market Frictions
