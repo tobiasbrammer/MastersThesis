@@ -47,6 +47,8 @@ def upload(fig, project, path):
         # Save the Matplotlib figure to the BytesIO object in the correct format
         # fig.savefig(bs, format=format)
         # Upload the BytesIO content (the plot image) to Dropbox
+        # Format bs as a .png file
+        fig.savefig(bs, dpi=250, format="png")
         dbx.files_upload(
             bs.getvalue(), f"/Apps/Overleaf/{project}/{path}", mode=WriteMode.overwrite
         )
