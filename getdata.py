@@ -1,8 +1,8 @@
-import polars as pl
-import pandas as pd
-from time import time
 import os
 import re
+from time import time
+
+import polars as pl
 
 # Set environment variable for Rust backtrace
 os.environ["RUST_BACKTRACE"] = "1"
@@ -15,8 +15,9 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 start = time()
 
 # %% ################## CSV TO PARQUET ##################
+# The following section converts all .csv files in 'data_raw_csv' to .parquet files.
 
-# # Get all files in data_raw_csv
+# Get all files in data_raw_csv
 files = [f for f in os.listdir("data_raw_csv") if f.endswith(".csv")]
 
 # # Convert each file to parquet
@@ -32,6 +33,11 @@ for file in files:
 
 
 # %% ################## PRICES ##################
+# The following section extracts data from price files in 'data_raw_parquet', i.e. those that start with 'prices'.
+# Tickers are extracted using regular expressions. Numerical columns are cast as Float32, to optimize memory.
+# Datetime is extracted from 'StartTime' and TZ is set to Copenhagen.
+# Each file is appended onto the previous dataframe.
+# Finally, the entire dataframe is saved as 'prices.parquet'.
 files = [f for f in os.listdir("data_raw_parquet") if f.endswith(".parquet")]
 
 # Define the pattern using regular expression
@@ -100,11 +106,21 @@ print("")
 del df_list
 
 # %% ################## COACS ##################
+# 'Co-ownership Authorised Contractual Schemes'
+# The following section extracts data from CoACS files in 'data_raw_parquet', i.e. those that start with 'coacs'.
+# Tickers are extracted using regular expressions. Columns are transformed according to schema, with Float32 numeric.
+# Datetime is extracted from 'Date' and TZ is set to Copenhagen.
+# Each file is appended onto the previous dataframe.
+# Finally, the entire dataframe is saved as 'prices.parquet'.
 
 print("Getting CoACS...")
 pattern = re.compile(r"_(.*?)-")
 # For files that start with coacs
-coacs = [f for f in [f for f in os.listdir("data_raw_parquet") if f.endswith(".parquet")] if f.startswith("coacs")]
+coacs = [
+    f
+    for f in [f for f in os.listdir("data_raw_parquet") if f.endswith(".parquet")]
+    if f.startswith("coacs")
+]
 
 col_transforms = [
     ("UIC", pl.Int64),
@@ -173,7 +189,7 @@ for file in coacs:
         "Comment",
         "EntitlementId",
         "timestamp",
-        #"Date",
+        "Date",
     )
     # Add df_temp to df_list
     df_list.append(df_temp)
@@ -188,15 +204,14 @@ print("Finished saving coacs.parquet")
 print("")
 
 # %%
-# The following cell reads the parquet files created by raw2parquet.py.
-
-# It joins the prices and coacs tables on the ticker and date columns.
-# It also creates a new column called OldNoOfStocks, which is the number of stocks before the stock split/dividend.
-# If there is not a match in the coacs table, the OldNoOfStocks is set to 1.
-# The StockOpen, StockHigh, StockLow, and StockClose columns are multiplied with OldNoOfStocks to get the adjusted price.
-
-# It applies the log transformation to the adjusted prices, and the calculates the log return for each ticker.
+# The following cell reads the parquet files created by the previous sections.
+# We join the prices and coacs tables on the ticker and date columns, to adjust the stock prices.
+# Doing so, we create a new column called OldNoOfStocks, which serves as an adjustment factor.
+# Each adjustment factor is initialized as 1, i.e. no adjustment, and we forward fill the missing values.
+# Forward filling ensures the stock is adjusted according to the most recent known value.
+# Furthermore, we apply the log transformation to the adjusted prices, and calculate the log return for each ticker.
 # The log return is calculated for the following time intervals: 1, 5, 10, 30, 60, 120, 240, and 390 minutes.
+
 print("Creating intraday returns...")
 print("Reading prices.parquet and coacs.parquet...")
 
@@ -208,26 +223,26 @@ lf_intraday = (
         how="left",
     )
     .sort(["ticker", "datetime"])
-    .with_columns(
+    .with_columns(  # Create column with binary indicator for change in ticker, i.e. first observation of ticker.
         pl.when(pl.col("ticker").shift(1) != pl.col("ticker"))
         .then(1)
         .otherwise(0)
         .alias("first_obs")
     )
-    .with_columns(
+    .with_columns(  # Initialize adjustment factor ('OldNoOfStocks') as 1.
         pl.when(pl.col("first_obs") == 1)
         .then(1)
         .otherwise(pl.col("OldNoOfStocks"))
         .alias("OldNoOfStocks")
     )
-    .with_columns(
+    .with_columns(  # Fill missing values of adjustment factor forward, i.e. last known value.
         pl.col("OldNoOfStocks").fill_null(strategy="forward").alias("OldNoOfStocks")
     )
-    .with_columns(
+    .with_columns(  # Adjust stock prices by dividing with adjustment factor, since using forward fill.
         (pl.col("StockClose") / pl.col("OldNoOfStocks")).alias("AdjStockClose")
     )
     .with_columns(
-        [
+        [  # Apply logarithmic transformation to stock price and adjusted stock price.
             pl.col("datetime")
             .cast(pl.Datetime)
             .dt.replace_time_zone("America/New_York"),
@@ -270,7 +285,7 @@ lf_intraday = (
             .alias("return_4h"),
             (pl.col("log_close") - pl.col("log_close").shift(390))
             .over(pl.col("ticker"))
-            .alias("return_1d")
+            .alias("return_1d"),
         ]
     )
 )
@@ -278,13 +293,14 @@ lf_intraday = (
 # %% ################## SP500 ##################
 print("Reading SP500 and calculating market excess return...")
 # Join SP500 data with the intraday data, and calculate the excess market return
+# Calculate excess market return by subtracting the market return from the return of each stock.
 lf_intraday = lf_intraday.join(
     (
         lf_intraday.filter(pl.col("ticker") == "US500").select(
             [
                 pl.col("datetime").alias("datetime"),
                 pl.col("log_close").alias("mkt_log_close"),
-                pl.col("volume").alias("mkt_volume"),
+                pl.col("volume").alias("mkt_volume"), # Not really sure if this is valid.
                 pl.col("return_1min").alias("mkt_return_1min"),
                 pl.col("return_5min").alias("mkt_return_5min"),
                 pl.col("return_10min").alias("mkt_return_10min"),
