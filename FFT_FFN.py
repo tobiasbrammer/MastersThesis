@@ -13,14 +13,12 @@ from pre_process import *
 
 class FFT_FFN(nn.Module):
 
-    def __init__(self, lookback=30, random_seed=69, hidden_units=[30, 16, 8, 4], dropout=0.25):
+    def __init__(self, lookback=30, random_seed=69, hidden_units=[30, 16, 8, 4], dropout=0.25, device="cpu"):
 
         super(FFT_FFN, self).__init__()
-        # ToDo: For now I have dropped the logdir and "device = 'cpu'" - I'll add it later if needed
-
         self.random_seed = random_seed
         torch.manual_seed(self.random_seed)
-
+        self.device = torch.device(device)
         self.hidden_units = hidden_units
 
         self.hiddenLayers = nn.ModuleList()

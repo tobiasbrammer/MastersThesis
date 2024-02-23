@@ -1,20 +1,21 @@
 # Import packages
 import numpy as np
 import pandas as pd
+import os
 import torch
 import torch.nn as nn
-from pre_process import *
-from FFT_FFN import *
 import time
+from torch.optim import Adam
+from FFT_FFN import *
+from pre_process import *
 
 """ 
 Functions needed to run the models
 """
 
-
-# Intialize everything here - will clean up later
+# Get some data - ToDo: Clean this up
 df = pd.read_parquet('daily.parquet')
-df = df[(df['ticker'] == 'AAPL') | (df['ticker'] == 'GOOGL')][['ticker', 'datetime', 'return_1d']].\
+df = df[(df['ticker'] == 'AAPL') | (df['ticker'] == 'GOOGL')][['ticker', 'datetime', 'return_1d']]. \
     set_index('datetime').pivot(columns='ticker').dropna()
 df.columns = ['AAPL', 'GOOGL']
 # Make sure no there is no missing data
@@ -22,65 +23,346 @@ df = df.replace([np.inf, -np.inf], np.nan)
 df = df.ffill().bfill()
 df = np.array(df)
 
-########################################################################################################################
-# preprocess_fourier function (done)
-########################################################################################################################
-
-windows, idxs_selected = preprocess_fourier(df, lookback=30)
 
 ########################################################################################################################
 # General training function
 ########################################################################################################################
-from torch.optim import Adam
+def train(model, preprocess, df_train, df_dev=None, log_dev_progress=True, log_dev_progress_freq=50, num_epochs=100,
+          lr=0.001, batchsize=200, optimizer_opts={"lr": 0.001}, early_stopping=False, early_stopping_max_trials=5,
+          lr_decay=0.5, residual_weights_train=None, residual_weights_dev=None, save_params=True, output_path=None,
+          model_tag="", lookback=30, trans_cost=0, hold_cost=0, parallelize=True, device=None,
+          device_ids=[0, 1, 2, 3, 4, 5, 6, 7], force_retrain=True, objective='sharpe'):
+    # Preprocess data
+    # assets_to_trade chooses assets which have at least `lookback` non-missing observations in the training period
+    # this does not induce lookahead bias because idxs_selected is backward-looking and
+    # will only select assets with at least `lookback` non-missing obs
+    assets_to_trade = np.count_nonzero(df_train, axis=0) >= lookback
+    df_train = df_train[:, assets_to_trade]
 
-# input to function is training data
-model = FFT_FFN(lookback=30, random_seed=69, hidden_units=[30, 16, 8, 4], dropout=0.25)  # ToDo: Will this work?
-df_train = df[:round(len(df) * 0.66)]
-parallelize = False  # We probably want "True"
-device_ids = [0, 1, 2, 3, 4, 5, 6, 7]  # must use device='cuda' to parallelize  (I don't know what this is - yet!)
-lookback = 30
-optimizer_opts = {"lr": 0.001}
-num_epochs = 100
-batchsize = 200
+    # Get output path
+    if output_path is None:
+        output_path = os.path.join(os.getcwd(), "output")
+    if device is None:
+        device = model.device
+
+    # ToDo: What data is used for residual_weights is still unclear at this moment - I'll hopefully find out
+    residual_weights_train = None
+    if residual_weights_train is not None:
+        residual_weights_train = residual_weights_train[:, assets_to_trade]
+
+    T, N = df_train.shape
+
+    # ToDo: Uncomment this, when everything is in class
+    windows, idxs_selected = preprocess(df_train, lookback)
+
+    # Start to train
+    if parallelize:
+        model = nn.DataParallel(model, device_ids=device_ids)
+    model.to(device)
+    model.train()  # Sets the mode of the model to training
+    optimizer = Adam(model.parameters(), **optimizer_opts)
+
+    # Initialize variables
+    min_dev_loss = np.inf
+    patience = 0
+    trial = 0
+
+    already_trained = False
+
+    # Check if we already trained the model
+    checkpoint_fname = (
+            f"Checkpoint - {model.module.random_seed if parallelize else model.random_seed}_seed_" + model_tag + ".tar")
+
+    if os.path.isfile(os.path.join(output_path, checkpoint_fname)) and not force_retrain:
+        already_trained = True
+        checkpoint = torch.load(os.path.join(output_path, checkpoint_fname))
+        model.load_state_dict(checkpoint["model_state_dict"])
+        model = model.to(device)
+        model.train()
+        print("Model already trained!")
+
+    start_time = time.time
+    for epoch in range(num_epochs):
+        rets_full = np.zeros(T - lookback)
+        short_proportion = np.zeros(T - lookback)
+        turnover = np.zeros(T - lookback)
+
+        # Break input data into batches of size 'batchsize' and train over them, for computational efficiency
+        for i in range(int((T - lookback) / batchsize) + 1):
+            weights = torch.zeros((min(batchsize * (i + 1), T - lookback) - batchsize * i, N))  # "device" dropped
+
+            # "Logging"
+            print(f"Epoch {epoch} batch {i} weights shape: {weights.shape}")
+
+            idxs_batch_i = idxs_selected[(batchsize * i):min(batchsize * (i + 1), T - lookback), :]
+            input_data_batch_i = windows[(batchsize * i):min(batchsize * (i + 1), T - lookback)][idxs_batch_i]
+
+            weights[idxs_batch_i] = model(torch.tensor(input_data_batch_i))  # "device" dropped
+
+            if residual_weights_train is None:
+                abs_sum = torch.sum(torch.abs(weights), dim=1, keepdim=True)
+            else:  # residual_weights_train is TxN1xN2 (multiplied by returns on the right gives residuals)
+                # ToDo: Test the "else-statement" when I know what residual_weights_train is
+                assert (weights.shape ==
+                        residual_weights_train[(lookback + batchsize * i):(min(lookback + batchsize * (i + 1), T)), :,
+                        0].shape)
+
+                T1, N1 = weights.shape
+                weights2 = torch.bmm(weights.reshape(T1, 1, N1),
+                                     torch.tensor(residual_weights_train[
+                                                  (lookback + batchsize * i):min(lookback + batchsize * (i + 1),
+                                                                                 T)])).squeeze()  # will be T1xN2
+
+                # "Logging"
+                print(f"Epoch {epoch} batch {i} weights2 shape: {weights2.shape}")
+
+                # noinspection PyArgumentList
+                abs_sum = torch.sum(torch.abs(weights2), axis=1, keepdim=True)
+                # Normalize weights by the sum of their absolute values
+                try:
+                    weights2 = weights2 / abs_sum
+                except:
+                    weights2 = weights2 / (abs_sum + 1e-8)
+
+            try:
+                weights = weights / abs_sum
+            except:
+                weights = weights / (abs_sum + 1e-8)
+
+            # noinspection PyArgumentList
+            rets_train = torch.sum(
+                weights * torch.tensor(df_train[(lookback + batchsize * i):min(lookback + batchsize * (i + 1), T), :]),
+                axis=1)
+
+            if residual_weights_train is None:
+                # noinspection PyArgumentList
+                rets_train = (rets_train - trans_cost * torch.cat(
+                    (torch.zeros(1), torch.sum(torch.abs(weights[1:] - weights[:-1]), axis=1))) - hold_cost * torch.sum(
+                    torch.abs(torch.min(weights, torch.zeros(1))), axis=1))
+            else:
+                # noinspection PyArgumentList ,PyUnboundLocalVariable
+                rets_train = (rets_train - trans_cost * torch.cat(
+                    (torch.zeros(1),
+                     torch.sum(torch.abs(weights2[1:] - weights2[:-1]), axis=1))) - hold_cost * torch.sum(
+                    torch.abs(torch.min(weights2, torch.zeros(1))), axis=1))
+
+            mean_ret = torch.mean(rets_train)
+            std = torch.std(rets_train)
+            if objective == "Sharpe":
+                loss = -mean_ret / std
+            elif objective == 'meanvar':
+                loss = -mean_ret * 252 + std * 15.9  # Hvor kommer 15.9 fra? 252 er antal handelsdage på et år
+            elif objective == 'sqrtMeanSharpe':
+                loss = -torch.sign(mean_ret) * np.sqrt(np.abs(mean_ret)) / std
+            else:
+                raise Exception(
+                    f'Invalid objective loss {objective}. Needs to be either Sharpe, meanvar or sqrtMeanSharpe')
+
+            if not already_trained and (
+                    (parallelize and model.module.is_trainable) or (not parallelize and model.is_trainable)):
+                optimizer.zero_grad()  # Reset gradient
+                loss.backward()  # Calculate new gradients
+                optimizer.step()  # Update model param given new gradients
+
+            if residual_weights_train is None:
+                weights = weights.detach().numpy()
+            else:
+                weights = weights2.detach().numpy()
+
+            rets_full[(batchsize * i):min(batchsize * (i + 1), T - lookback)] = (rets_train.detach().numpy())
+            turnover[(batchsize * i):(min(batchsize * (i + 1), T - lookback)) - 1] = np.sum(
+                np.abs(weights[1:] - weights[:-1]), axis=1)
+            # We simply things with this next line, but I'm not sure if why
+            turnover[min(batchsize * (i + 1), T - lookback) - 1] = turnover[min(batchsize * (i + 1), T - lookback) - 2]
+            short_proportion[(batchsize * i):min(batchsize * (i + 1), T - lookback)] = np.sum(
+                np.abs(np.minimum(weights, 0)), axis=1)
+
+            if log_dev_progress and epoch % log_dev_progress_freq == 0:
+                dev_loss_description = ""
+                if df_dev is not None:  # ToDo: Run this when 'get_returns' is done
+                    (rets_dev, dev_loss, dev_sharpe, dev_turnovers, dev_short_proportions, weights_dev,
+                     a2t) = get_returns(
+                        model, preprocess=preprocess, objective=objective, df_test=df_dev, lookback=lookback,
+                        trans_cost=trans_cost, hold_cost=hold_cost, residual_weights=residual_weights_dev)
+                    model.train()
+                    dev_mean_ret = np.mean(rets_dev)
+                    dev_std = np.std(rets_dev)
+                    dev_turnover = np.mean(dev_turnovers)
+                    dev_short_proportion = np.mean(dev_short_proportions)
+                    dev_loss_description = (
+                        f", dev loss {-dev_loss:0.2f}, dev Sharpe: {-dev_sharpe * np.sqrt(252):0.2f}, "
+                        f" ret: {dev_mean_ret * 252:0.4f}, std: {dev_std * np.sqrt(252) :0.4f}, "
+                        f"turnover: {dev_turnover:0.3f}, short proportion: {dev_short_proportion:0.3f}\n"
+                    )
+
+                full_ret = np.mean(rets_full)
+                full_std = np.std(rets_full)
+                full_sharpe = full_ret / full_std
+                full_turnover = np.mean(turnover)
+                full_short_proportion = np.mean(short_proportion)
+
+                print(
+                    f"Epoch: {epoch}/{num_epochs}, "
+                    f"train Sharpe: {full_sharpe * np.sqrt(252):0.2f}, "
+                    f"ret: {full_ret * 252:0.4f}, "
+                    f"std: {full_std * np.sqrt(252):0.4f}, "
+                    f"turnover: {full_turnover:0.3f}, "
+                    f"short proportion: {full_short_proportion:0.3f} \n"
+                    "       "
+                    f" time per epoch: {(time.time() - start_time) / (epoch + 1):0.2f}s"
+                )
+
+                if early_stopping:
+                    model.random_seed = 69
+                    if dev_loss < min_dev_loss:  # It will always start here, as we have min_dev_loss = np.inf
+                        patience = 0
+                        min_dev_loss = dev_loss
+                        checkpoint = {"epoch": epoch, "model_state_dict": model.state_dict(),
+                                      "optimizer_state_dict": optimizer.state_dict(), "loss": loss}
+                        torch.save(checkpoint,
+                                   os.path.join(output_path, f"Checkpoint - {model.random_seed}_seed_{model_tag}.tar"))
+
+                    else:
+                        patience += 1
+                        if trial == early_stopping_max_trials:
+                            print("early stopping max trials reached")
+                            break
+                        else:
+                            trial += 1
+                            print(f"Trial {trial} of {early_stopping_max_trials} - Reducing learning rate")
+                            lr = optimizer.param_groups[0]["lr"] * lr_decay
+                            checkpoint = torch.load(
+                                os.path.join(output_path, f"Checkpoint - {model.random_seed}_seed_{model_tag}.tar"))
+                            model.load_state_dict(checkpoint["model_state_dict"])
+                            model = model.to(device)
+                            optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+                            model.train()
+
+                            for param_group in optimizer.param_groups:
+                                param_group["lr"] = lr
+                            patience = 0
+
+        if already_trained:
+            print("Model has already been trained")
+            break
+
+    if save_params and not already_trained:
+        checkpoint = {"epoch": epoch, "model_state_dict": model.state_dict(),
+                      "optimizer_state_dict": optimizer.state_dict(), "loss": loss}
+        # Save the model, such that we know it has been trained
+        checkpoint_fname = (
+                f"Checkpoint - {model.module.random_seed if parallelize else model.random_seed}_seed_" + model_tag + ".tar")
+        torch.save(checkpoint, os.path.join(output_path, checkpoint_fname))
+
+    print(
+        f"Training time: {(time.time() - start_time) / 60} minutes, model: {model_tag}, "
+        f"seed: {model.module.random_seed if parallelize else model.random_seed}"
+    )
+
+    if df_dev is not None:
+        return rets_dev, dev_turnovers, dev_short_proportions, weights_dev, a2t
+    else:
+        return rets_full, turnover, short_proportion, weights, assets_to_trade
 
 
-# Preprocess data
-# assets_to_trade chooses assets which have at least `lookback` non-missing observations in the training period
-# this does not induce lookahead bias because idxs_selected is backward-looking and
-# will only select assets with at least `lookback` non-missing obs
-assets_to_trade = np.count_nonzero(df_train, axis=0) >= lookback
-df_train = df_train[:, assets_to_trade]
+########################################################################################################################
+# Returns function - Used in training function
+########################################################################################################################
 
-# ToDo: What data is used for residual_weights is still unclear at this moment - I'll hopefully find out
-residual_weights_train = None
-if residual_weights_train is not None:
-    residual_weights_train = residual_weights_train[:, assets_to_trade]
 
-T, N = df_train.shape
+def get_returns(model,
+                preprocess,
+                objective,
+                df_test,
+                lookback,
+                trans_cost,
+                hold_cost,
+                residual_weights=None,
+                load_params=False,
+                paths_checkpoints=[None],
+                parallelize=False,
+                device_ids=[0, 1, 2, 3, 4, 5, 6, 7]):
+    # Get device
+    device = model.device
+    if parallelize:
+        model = nn.DataParallel(model, device_ids).to(device)
 
-# ToDo: Uncomment this, when everything is in class
-# windows, idxs_selected = self.preprocess_fourier(df_train, lookback)
+    # Restrict to assets which have at least 'lookback' non-missing observations in the training period
+    assets_to_trade = np.count_nonzero(df_test, axis=0) >= lookback
+    df_test = df_test[:, assets_to_trade]
+    T, N = df_test.shape
+    windows, idxs_selected = preprocess(df_test, lookback)
 
-# Start to train
-if parallelize:
-    model = nn.DataParallel(model, device_ids=device_ids)
-model.to(None)  # ToDo: Change this if we start using GPU
-model.train()  # Sets the mode of the model to training
-optimizer = Adam(model.paramteters(), **optimizer_opts)
+    rets_test = torch.zeros(T - lookback)
+    model.eval()
 
-# Initialize variables
-min_dev_loss = np.inf
-patience = 0
-trial = 0
-already_trained = False
+    with torch.no_grad():
+        weights = torch.zeros((T - lookback, N), device=device)
 
-# ToDo: I'll drop the "check if already trained, checkpoint" (line 83-100 in train_test)
+        for i in range(len(paths_checkpoints)):  # This ensembles if many checkpoints are given (whatever that means)
+            if load_params:
+                checkpoint = torch.load(paths_checkpoints[i], map_location=device)
+                model.load_state_dict(checkpoint["model_state_dict"])
+                model.to(device)
 
-start_time = time.time
-for epoch in range(num_epochs):
-    rets_full = np.zeros(T - lookback)
-    short_proportion = np.zeros(T - lookback)
-    turnover = np.zeros(T - lookback)
+            weights[idxs_selected] += model(torch.tensor(windows[idxs_selected], device=device))
+        weights /= len(paths_checkpoints)
 
-    # Break input data into batches of size 'batchsize' and train over them, for computational efficiency
-    
+        if residual_weights is None:
+            # noinspection PyArgumentList
+            abs_sum = torch.sum(torch.abs(weights), axis=1, keepdim=True)
+        else:
+            residual_weights = residual_weights[:, assets_to_trade]
+            assert weights.shape == residual_weights[lookback:T, :, 0].shape
+            T1, N1 = weights.shape
+            weights2 = torch.bmm(weights.reshape(T1, 1, N1),
+                                 torch.tensor(residual_weights[lookback:T], device=device)).squeeze()
+            # noinspection PyArgumentList
+            abs_sum = torch.sum(torch.abs(weights2), axis=1, keepdim=True)
+
+            try:
+                weights2 = weights2 / abs_sum
+            except:
+                weights2 = weights2 / (abs_sum + 1e-8)
+
+        try:
+            weights = weights / abs_sum
+        except:
+            weights = weights / (abs_sum + 1e-8)
+
+        # noinspection PyArgumentList
+        rets_test = torch.sum(weights * torch.tensor(df_test[lookback:T, :], device=device), axis=1)
+
+        if residual_weights is not None:
+            weights = weights2
+
+        # noinspection PyArgumentList
+        turnover = torch.cat((torch.zeros(1, device=device), torch.sum(torch.abs(weights[1:] - weights[:-1]), axis=1)))
+        # noinspection PyArgumentList
+        short_proportion = torch.sum(torch.abs(torch.min(weights, torch.zeros(1, device=device))), axis=1)
+        rets_test = rets_test - trans_cost * turnover - hold_cost * short_proportion
+
+        turnover[0] = torch.mean(turnover[1:])
+        mean = torch.mean(rets_test)
+        std = torch.std(rets_test)
+        sharpe = -mean / std
+        loss = None
+
+        if objective == "sharpe":
+            loss = sharpe
+        elif objective == "meanvar":
+            loss = -mean * 252 + std * 15.9
+        elif objective == "sqrtMeanSharpe":
+            loss = -torch.sign(mean) * torch.sqrt(torch.abs(mean)) / std
+        else:
+            raise Exception(f"Invalid objective loss {objective}")
+
+    return (
+        rets_test.numpy(),
+        loss,
+        sharpe,
+        turnover.numpy(),
+        short_proportion.numpy(),
+        weights.numpy(),
+        assets_to_trade,
+    )  # If there is problems with the return, I might need to do .cpu() on the tensors
