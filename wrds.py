@@ -2,9 +2,7 @@ import pandas as pd
 import os
 import wrds
 
-db = wrds.Connection(
-    wrds_username=os.environ["WRDS_USERNAME"]
-)
+db = wrds.Connection(wrds_username='tobiasbrammer')
 
 # Set your start and end dates
 start_date = "2019-01-01"
@@ -46,8 +44,6 @@ missing_vars = [var for var in variables if var not in fund_vars["name"].values]
 # Remove missing variables from 'variables'
 variables = [var for var in variables if var not in missing_vars]
 
-
-
 # Download Compustat data
 compustat_query = f"""
     SELECT {', '.join(variables)}
@@ -58,12 +54,3 @@ compustat_data = db.raw_sql(compustat_query)
 
 # Close the connection
 db.close()
-
-# Merge the data
-data = pd.merge(
-    crsp_data,
-    compustat_data,
-    how="left",
-    left_on=["permno", "date"],
-    right_on=["gvkey", "datadate"],
-)

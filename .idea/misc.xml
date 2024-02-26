@@ -4,7 +4,7 @@
     <option name="enabledOnReformat" value="true" />
     <option name="sdkName" value="Python 3.11 (MastersThesis)" />
   </component>
-  <component name="ProjectRootManager" version="2" project-jdk-name="Python 3.11 (MasterThesis)" project-jdk-type="Python SDK" />
+  <component name="ProjectRootManager" version="2" project-jdk-name="Python 3.11 (MastersThesis)" project-jdk-type="Python SDK" />
   <component name="PyCharmDSProjectLayout">
     <option name="id" value="JupyterRightHiddenStructureLayout" />
   </component>
