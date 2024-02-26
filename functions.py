@@ -8,24 +8,106 @@ import time
 from torch.optim import Adam
 from FFT_FFN import *
 from pre_process import *
+from matplotlib import pyplot as plt
 
 """ 
 Functions needed to run the models
 """
 
-# Get some data - ToDo: Clean this up
-df = pd.read_parquet('daily.parquet')
-df = df[(df['ticker'] == 'AAPL') | (df['ticker'] == 'GOOGL')][['ticker', 'datetime', 'return_1d']]. \
-    set_index('datetime').pivot(columns='ticker').dropna()
-df.columns = ['AAPL', 'GOOGL']
-# Make sure no there is no missing data
-df = df.replace([np.inf, -np.inf], np.nan)
-df = df.ffill().bfill()
-df = np.array(df)
+
+########################################################################################################################
+# Estimate function
+########################################################################################################################
+def estimate(Data, model, preprocess, residual_weights=None, log_dev_progress_freq=50,
+             num_epochs=100, lr=0.001, batchsize=150, early_stopping=False, save_params=True,
+             device="cuda", output_path=os.path.join(os.getcwd(), "results", "Unknown"), model_tag="Unknown",
+             lookback=30, length_training=1000, test_size=125, parallelize=True, device_ids=[0, 1, 2, 3, 4, 5, 6, 7],
+             trans_cost=0, hold_cost=0, force_retrain=True, objective="sharpe", estimate_start_idx=0):
+
+    # Assets to trade
+    assets_to_trade = np.count_nonzero(Data, axis=0) >= lookback
+    Data = Data[:, assets_to_trade]
+    T, N = Data.shape
+    returns = np.zeros(length_training)
+    turnovers = np.zeros(length_training)
+    short_proportions = np.zeros(length_training)
+    all_weights = np.zeros((length_training, len(assets_to_trade)))
+
+    # Load weights
+    if residual_weights is not None and "FamaFrenchNew" in model_tag:
+        assets_to_trade = np.load('')  # Insert residuals from fama_french universe
+        Data = Data[:, assets_to_trade]
+        all_weights = np.zeros((T - length_training, len(assets_to_trade)))
+
+    if residual_weights is not None and "Fama" in model_tag and "New" not in model_tag:
+        Ndifference = residual_weights.shape[2] - np.sum(assets_to_trade)
+        if Ndifference > 0:
+            all_weights = np.zeroes((length_training, len(assets_to_trade) + Ndifference))
+            assets_to_trade = np.append(assets_to_trade, np.ones(Ndifference, dtype=np.bool))
+
+    if residual_weights is not None and ("IPCA" in model_tag or "Deep" in model_tag):
+        assets_to_trade = np.load('')  # Load residuals from IPCA or "Deep" universe?
+        all_weights = np.zeros((length_training, len(assets_to_trade)))
+
+    # "Logging"
+    print(f"Estimating: {estimate_start_idx}:{min(estimate_start_idx + length_training, T)} for {model_tag}")
+    print(f"Testing: {estimate_start_idx + length_training - lookback}:"
+          f"{min(estimate_start_idx + length_training + test_size, T)}")
+
+    # Creating the training and dev data
+    df_train = Data[estimate_start_idx:min(estimate_start_idx + length_training, T)]
+    df_dev = Data[
+             estimate_start_idx + length_training - lookback:min(estimate_start_idx + length_training + test_size, T)]
+    residual_weights_train = (None if residual_weights is None
+                              else residual_weights[estimate_start_idx:min(estimate_start_idx + length_training, T)])
+    residual_weights_dev = (None if residual_weights is None
+                            else residual_weights[(estimate_start_idx + length_training - lookback):
+                                                  min(estimate_start_idx + length_training + test_size, T)])
+
+    # Cleaning up
+    del residual_weights
+    del Data
+
+    model_tag = (model_tag + f"__estimation{estimate_start_idx}-{length_training}-{test_size}")
+
+    # Train the model
+    model1 = model
+    returns, turnovers, short_proportions, all_weights, a2t = train(model1, preprocess=preprocess, df_train=df_train,
+                                                                    df_dev=df_dev,
+                                                                    residual_weights_train=residual_weights_train,
+                                                                    residual_weights_dev=residual_weights_dev,
+                                                                    log_dev_progress_freq=log_dev_progress_freq,
+                                                                    num_epochs=num_epochs, lr=lr,
+                                                                    force_retrain=force_retrain,
+                                                                    early_stopping=early_stopping,
+                                                                    save_params=save_params,
+                                                                    output_path=output_path, model_tag=model_tag,
+                                                                    device=device, lookback=lookback,
+                                                                    parallelize=parallelize, device_ids=device_ids,
+                                                                    batchsize=batchsize, trans_cost=trans_cost,
+                                                                    hold_cost=hold_cost, objective=objective)
+
+    if device is None:
+        device = model.device.type
+    if "cpu" not in device:
+        with torch.cuda.device(device):  # For Parallelization
+            torch.cuda.empty_cache()  # Clear memory
+
+    print("Estimation complete!")
+
+    np.save(os.path.join(output_path, "WeightsComplete_" + model_tag + ".npy"), all_weights)
+
+    full_ret = np.mean(returns)
+    full_std = np.std(returns)
+    full_sharpe = full_ret / full_std
+    print(f"Sharpe: {full_sharpe * np.sqrt(252):0.2f}, ret: {full_ret * 252:0.4f}, std: {full_std * np.sqrt(252):0.4f}"
+          f"turnover: {np.mean(turnovers):0.3f}, short proportion: {np.mean(short_proportions):0.4f}")
+
+    return returns, full_sharpe, full_ret, full_std, turnovers, short_proportions
 
 
 ########################################################################################################################
-# General training function
+# Train function - Used in Estimate function
 ########################################################################################################################
 def train(model, preprocess, df_train, df_dev=None, log_dev_progress=True, log_dev_progress_freq=50, num_epochs=100,
           lr=0.001, batchsize=200, optimizer_opts={"lr": 0.001}, early_stopping=False, early_stopping_max_trials=5,
@@ -41,18 +123,15 @@ def train(model, preprocess, df_train, df_dev=None, log_dev_progress=True, log_d
 
     # Get output path
     if output_path is None:
-        output_path = os.path.join(os.getcwd(), "output")
+        output_path = os.path.join(os.getcwd(), "Outputs")
     if device is None:
         device = model.device
 
-    # ToDo: What data is used for residual_weights is still unclear at this moment - I'll hopefully find out
     residual_weights_train = None
     if residual_weights_train is not None:
         residual_weights_train = residual_weights_train[:, assets_to_trade]
 
     T, N = df_train.shape
-
-    # ToDo: Uncomment this, when everything is in class
     windows, idxs_selected = preprocess(df_train, lookback)
 
     # Start to train
@@ -81,7 +160,7 @@ def train(model, preprocess, df_train, df_dev=None, log_dev_progress=True, log_d
         model.train()
         print("Model already trained!")
 
-    start_time = time.time
+    start_time = time.time()
     for epoch in range(num_epochs):
         rets_full = np.zeros(T - lookback)
         short_proportion = np.zeros(T - lookback)
@@ -102,7 +181,6 @@ def train(model, preprocess, df_train, df_dev=None, log_dev_progress=True, log_d
             if residual_weights_train is None:
                 abs_sum = torch.sum(torch.abs(weights), dim=1, keepdim=True)
             else:  # residual_weights_train is TxN1xN2 (multiplied by returns on the right gives residuals)
-                # ToDo: Test the "else-statement" when I know what residual_weights_train is
                 assert (weights.shape ==
                         residual_weights_train[(lookback + batchsize * i):(min(lookback + batchsize * (i + 1), T)), :,
                         0].shape)
@@ -148,7 +226,7 @@ def train(model, preprocess, df_train, df_dev=None, log_dev_progress=True, log_d
 
             mean_ret = torch.mean(rets_train)
             std = torch.std(rets_train)
-            if objective == "Sharpe":
+            if objective == "sharpe":
                 loss = -mean_ret / std
             elif objective == 'meanvar':
                 loss = -mean_ret * 252 + std * 15.9  # Hvor kommer 15.9 fra? 252 er antal handelsdage på et år
@@ -156,7 +234,7 @@ def train(model, preprocess, df_train, df_dev=None, log_dev_progress=True, log_d
                 loss = -torch.sign(mean_ret) * np.sqrt(np.abs(mean_ret)) / std
             else:
                 raise Exception(
-                    f'Invalid objective loss {objective}. Needs to be either Sharpe, meanvar or sqrtMeanSharpe')
+                    f'Invalid objective loss {objective}. Needs to be either sharpe, meanvar or sqrtMeanSharpe')
 
             if not already_trained and (
                     (parallelize and model.module.is_trainable) or (not parallelize and model.is_trainable)):
@@ -179,7 +257,7 @@ def train(model, preprocess, df_train, df_dev=None, log_dev_progress=True, log_d
 
             if log_dev_progress and epoch % log_dev_progress_freq == 0:
                 dev_loss_description = ""
-                if df_dev is not None:  # ToDo: Run this when 'get_returns' is done
+                if df_dev is not None:
                     (rets_dev, dev_loss, dev_sharpe, dev_turnovers, dev_short_proportions, weights_dev,
                      a2t) = get_returns(
                         model, preprocess=preprocess, objective=objective, df_test=df_dev, lookback=lookback,
@@ -266,10 +344,8 @@ def train(model, preprocess, df_train, df_dev=None, log_dev_progress=True, log_d
 
 
 ########################################################################################################################
-# Returns function - Used in training function
+# Returns function - Used in Train function
 ########################################################################################################################
-
-
 def get_returns(model,
                 preprocess,
                 objective,
@@ -366,3 +442,139 @@ def get_returns(model,
         weights.numpy(),
         assets_to_trade,
     )  # If there is problems with the return, I might need to do .cpu() on the tensors
+
+
+########################################################################################################################
+# Test function
+########################################################################################################################
+def test(Data, daily_dates, model, preprocess, residual_weights=None, log_dev_progress_freq=50, log_plot_freq=199,
+         num_epochs=100, lr=0.001, batchsize=150, early_stopping=False, save_params=True, device='cuda',
+         output_path=os.path.join(os.getcwd(), "results", "Unknown"), model_tag="Unknown", lookback=30,
+         retrain_freq=250, length_training=1000, rolling_retrain=True, parallelize=True,
+         device_ids=[0, 1, 2, 3, 4, 5, 6, 7], trans_cost=0, hold_cost=0, force_retrain=False, objective="sharpe"):
+    # Choose assets to trade
+    assets_to_trade = np.count_nonzero(Data, axis=0) >= lookback
+
+    # "Logging"
+    print(f"test(): assets_to_trade.shape {assets_to_trade.shape}")
+
+    # Initialize
+    Data = Data[:, assets_to_trade]
+    T, N = Data.shape
+    returns = np.zeros(T - length_training)
+    turnovers = np.zeros(T - length_training)
+    short_proportions = np.zeros(T - length_training)
+    all_weights = np.zeros((T - length_training, len(assets_to_trade)))
+
+    # Load assets_to_trade for the weights
+    if residual_weights is not None and "FamaFrenchNew" in model_tag:
+        assets_to_trade = np.load('')  # Insert residuals from fama_french universe
+        Data = Data[:, assets_to_trade]
+        all_weights = np.zeros((T - length_training, len(assets_to_trade)))
+
+    if (residual_weights is not None and "FamaFrench" in model_tag and "New" not in model_tag):
+        Ndifference = residual_weights.shape[2] - np.sum(assets_to_trade)
+        if Ndifference > 0:
+            all_weights = np.zeros((T - length_training, len(assets_to_trade) + Ndifference))
+            assets_to_trade = np.append(assets_to_trade, np.ones(Ndifference, dtype=np.bool))
+    if residual_weights is not None and ("IPCA" or "Deep" in model_tag):
+        assets_to_trade = np.load("")  # Load residuals from IPCA or "Deep" universe?
+        all_weights = np.zeros((T - length_training, len(assets_to_trade)))
+
+        # Run train/test
+    for t in range(int((T - length_training) / retrain_freq) + 1):
+        print(f"At subperiod: {t} / {int((T - length_training) / retrain_freq) + 1}")
+        data_train_t = Data[(t * retrain_freq):(length_training + t * retrain_freq)]
+        data_test_t = Data[
+                      (length_training + t * retrain_freq - lookback):min(length_training + (t + 1) * retrain_freq, T)]
+        if residual_weights is not None:
+            residual_weights_train_t = residual_weights[(t * retrain_freq):(length_training + t * retrain_freq)]
+            residual_weights_test_t = residual_weights[(length_training + t * retrain_freq - lookback):min(
+                length_training + (t + 1) * retrain_freq, T)]
+        else:
+            residual_weights_test_t = None
+            residual_weights_train_t = None
+
+        model_tag_t = model_tag + f"__subperiod{t}"
+
+        if rolling_retrain or t == 0:
+            model_t = model
+            rets_t, turns_t, shorts_t, weights_t, a2t = train(model=model_t, preprocess=preprocess,
+                                                               df_train=data_train_t,
+                                                               df_dev=data_test_t,  # No validation is done
+                                                               residual_weights_train=residual_weights_train_t,
+                                                               residual_weights_dev=residual_weights_test_t,
+                                                               log_dev_progress_freq=log_dev_progress_freq,
+                                                               num_epochs=num_epochs, force_retrain=force_retrain,
+                                                               optimizer_opts={"lr": 0.001},
+                                                               early_stopping=early_stopping,
+                                                               save_params=save_params, output_path=output_path,
+                                                               model_tag=model_tag_t, device=device, lookback=lookback,
+                                                               parallelize=parallelize, device_ids=device_ids,
+                                                               batchsize=batchsize, trans_cost=trans_cost,
+                                                               hold_cost=hold_cost, objective=objective)
+
+            print("Train completed")
+
+        else:
+            rets_t, _, _, turns_t, shorts_t, weights_t, a2t = get_returns(model=model_t, preprocess=preprocess,
+                                                                          objective=objective, df_test=data_test_t,
+                                                                          residual_weights=residual_weights_test_t,
+                                                                          device=device, lookback=lookback,
+                                                                          trans_cost=trans_cost, hold_cost=hold_cost)
+
+            print("get_returns() completed")
+
+        returns[(t * retrain_freq):min((t + 1) * retrain_freq, T - length_training)] = rets_t
+        turnovers[(t * retrain_freq):min((t + 1) * retrain_freq, T - length_training)] = turns_t
+        short_proportions[(t * retrain_freq):min((t + 1) * retrain_freq, T - length_training)] = shorts_t
+
+        if residual_weights is None:
+            w = np.zeros((min((t + 1) * retrain_freq, T - length_training) - t * retrain_freq, len(a2t)))
+            w[:, a2t] = weights_t
+
+            print(f"Returned weights.shape {weights_t.shape}")
+        else:
+            w = weights_t
+
+        # "Logging"
+        print(f"Weights selected shape "
+              f"{all_weights[(t * retrain_freq):min((t + 1) * retrain_freq, T - length_training), assets_to_trade].shape}")
+        print(f"sum(assets_to_trade) {np.sum(assets_to_trade)}")
+
+        all_weights[(t * retrain_freq):min((t + 1) * retrain_freq, T - length_training), assets_to_trade] = w
+
+        if device is None:
+            device = model.device.type
+        if "cpu" not in device:
+            with torch.cuda.device(device):
+                torch.cuda.empty_cache()
+
+    print("Train/Test completed")
+
+    cumRets = np.cumprod(1 + returns)
+
+    # Plot cumulative returns
+    plt.figure()
+    plt.plot_date(daily_dates[-len(cumRets):], cumRets, marker="None", linestyle="-")
+    plt.savefig(os.path.join(output_path, model_tag + "_cumulative-returns.png"))
+
+    # Plot turnover
+    plt.figure()
+    plt.plot_date(daily_dates[-len(cumRets):], turnovers, marker="None", linestyle="-")
+    plt.savefig(os.path.join(output_path, model_tag + "_turnover.png"))
+
+    # Plot short positions
+    plt.figure()
+    plt.plot_date(daily_dates[-len(cumRets):], short_proportions, marker="None", linestyle="-")
+    plt.savefig(os.path.join(output_path, model_tag + "_short-proportions.png"))
+
+    np.save(os.path.join(output_path, "WeightsComplete_" + model_tag + ".npy"), all_weights)
+
+    full_ret = np.mean(returns)
+    full_std = np.std(returns)
+    full_sharpe = full_ret / full_std
+    print(f"Sharpe: {full_sharpe * np.sqrt(252):0.2f}, ret: {full_ret * 252:0.4f}, std: {full_std * np.sqrt(252):0.4f}"
+          f"turnover: {np.mean(turnovers):0.4f}, short proportion: {np.mean(short_proportions):0.4f}")
+
+    return returns, full_sharpe, full_ret, full_std, turnovers, short_proportions
