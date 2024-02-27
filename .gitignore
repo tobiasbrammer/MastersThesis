@@ -36,8 +36,8 @@ Thumbs.db
 
 # CSV-files #
 ######################
-#data_raw_csv/
 
+/data_raw_parquet/
 coacs.parquet
 prices.parquet
 prices_daily.parquet
@@ -45,11 +45,12 @@ intraday.parquet
 daily.parquet
 daily_data.parquet
 
-/data_raw_parquet/
-/.idea/jupyter-settings.xml
-/data_raw_parquet/
+# Misc #
+/.idea/
+######################
+
 
 
 # Numpy arrays #
 ######################
-factor_outputs/OOSResiduals_PCA_factor5_rollingwindow_60.npy
+/factor_outputs/
