@@ -5,14 +5,25 @@ import pickle
 ########################################################################################################################
 # ToDo's:
 # 1. Get correct data
-#   a) Get residual data for PCA, IPCA, and Fama-French
+#   a) Get residual data for IPCA and Fama-French
+#       - Done for PCA
+
 #   b) Get data for residual_weights (still not sure what that is - I think its the residual composition matrix
 #       (see top of page 22 in Deep Learning Statistical Arbitrage))
+
 #   c) We also need to get the risk-free rate
+#       - Done (using yf's 3 months treasure bill
 
 # 2. Set everything up for the other models
 #   a) Set up for OU model (Everything is ready to be fit into the train/test functions I believe)
+
 #   b) Set up for CNN model
+
+# 3. We still need to make parallelization work - But it is not needed for now
+
+# 4. How should we handle missing data? E.g. AirBnB (ABNB) only has data from 2021
+#    (vi har 496 aktier, hvoraf 345 har data fra 1999 til 2024)
+#    Possible solution: Set all NaN to 0, as we always run "assets_to_consider (count_nonzero >= 30)"
 ########################################################################################################################
 
 ########################################################################################################################
@@ -26,8 +37,8 @@ import pickle
 # Initialize parameters
 ########################################################################################################################
 # Get data - (Temporary - maybe keep for the daily_dates?)
-df = pd.read_parquet('daily.parquet')[['ticker', 'datetime', 'return_1d']].set_index('datetime').pivot(
-    columns='ticker').replace([np.inf, -np.inf], np.nan).ffill().bfill()
+df = pd.read_parquet('daily_data.parquet')[['return']][1:]
+df.replace(np.nan, 0, inplace=True)
 daily_dates = df.index.date
 df = np.array(df)
 
@@ -124,4 +135,3 @@ for i in range(len(factors)):
         pickle.dump(results_dict, f)
 
     print(f"Time for {model_name_} factor model {factors[i]}: {time.time() - start_time}")
-
