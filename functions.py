@@ -4,23 +4,24 @@ import pandas as pd
 import os
 import torch
 import torch.nn as nn
+from tqdm import tqdm
+import warnings
 import time
 from torch.optim import Adam
 from FFT_FFN import *
 from pre_process import *
 from matplotlib import pyplot as plt
+import yfinance as yf
 
-""" 
-Functions needed to run the models
+
+"""
+Estimate function
 """
 
 
-########################################################################################################################
-# Estimate function
-########################################################################################################################
 def estimate(Data, model, preprocess, residual_weights=None, log_dev_progress_freq=50,
              num_epochs=100, lr=0.001, batchsize=150, early_stopping=False, save_params=True,
-             device="cuda", output_path=os.path.join(os.getcwd(), "results", "Unknown"), model_tag="Unknown",
+             device="cpu", output_path=os.path.join(os.getcwd(), "results", "Unknown"), model_tag="Unknown",
              lookback=30, length_training=1000, test_size=125, parallelize=True, device_ids=[0, 1, 2, 3, 4, 5, 6, 7],
              trans_cost=0, hold_cost=0, force_retrain=True, objective="sharpe", estimate_start_idx=0):
 
@@ -106,9 +107,11 @@ def estimate(Data, model, preprocess, residual_weights=None, log_dev_progress_fr
     return returns, full_sharpe, full_ret, full_std, turnovers, short_proportions
 
 
-########################################################################################################################
-# Train function - Used in Estimate function
-########################################################################################################################
+"""
+Train function - Used in Estimate function
+"""
+
+
 def train(model, preprocess, df_train, df_dev=None, log_dev_progress=True, log_dev_progress_freq=50, num_epochs=100,
           lr=0.001, batchsize=200, optimizer_opts={"lr": 0.001}, early_stopping=False, early_stopping_max_trials=5,
           lr_decay=0.5, residual_weights_train=None, residual_weights_dev=None, save_params=True, output_path=None,
@@ -343,9 +346,11 @@ def train(model, preprocess, df_train, df_dev=None, log_dev_progress=True, log_d
         return rets_full, turnover, short_proportion, weights, assets_to_trade
 
 
-########################################################################################################################
-# Returns function - Used in Train function
-########################################################################################################################
+"""
+Returns function - Used in Train function
+"""
+
+
 def get_returns(model,
                 preprocess,
                 objective,
@@ -444,11 +449,13 @@ def get_returns(model,
     )  # If there is problems with the return, I might need to do .cpu() on the tensors
 
 
-########################################################################################################################
-# Test function
-########################################################################################################################
+"""
+Test function
+"""
+
+
 def test(Data, daily_dates, model, preprocess, residual_weights=None, log_dev_progress_freq=50, log_plot_freq=199,
-         num_epochs=100, lr=0.001, batchsize=150, early_stopping=False, save_params=True, device='cuda',
+         num_epochs=100, lr=0.001, batchsize=150, early_stopping=False, save_params=True, device='cpu',
          output_path=os.path.join(os.getcwd(), "results", "Unknown"), model_tag="Unknown", lookback=30,
          retrain_freq=250, length_training=1000, rolling_retrain=True, parallelize=True,
          device_ids=[0, 1, 2, 3, 4, 5, 6, 7], trans_cost=0, hold_cost=0, force_retrain=False, objective="sharpe"):
@@ -578,3 +585,57 @@ def test(Data, daily_dates, model, preprocess, residual_weights=None, log_dev_pr
           f"turnover: {np.mean(turnovers):0.4f}, short proportion: {np.mean(short_proportions):0.4f}")
 
     return returns, full_sharpe, full_ret, full_std, turnovers, short_proportions
+
+
+"""
+Get daily-data
+"""
+
+
+def get_daily_data():
+    """
+    Returns daily excess returns, adjusted close, and volume
+    """
+
+    # Get tickers
+    tickers = pd.read_parquet('daily.parquet')['ticker'].unique()
+    risk_free = get_risk_free_rate()
+
+    # Get data
+    data = []
+    for tick in tqdm(tickers, desc='Downloading data', miniters=10):
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=FutureWarning)
+            df = yf.download(tick, start="1998-12-31", end="2024-01-01", progress=False)
+        df['ticker'] = tick
+        df['return'] = np.log(df['Adj Close']) - np.log(df['Adj Close'].shift(1)) - risk_free
+        data.append(df[['ticker', 'Adj Close', 'Volume', 'return']])
+
+    data = pd.concat(data)
+    data = data[~(data['ticker'].isna())]
+    data = data.pivot(columns='ticker')
+
+    # Save data
+    data.to_parquet('daily_data.parquet')
+
+    return data
+
+
+"""
+Get risk-free rate
+"""
+
+
+def de_annualize(annual_rate, periods=365):
+    return (1 + annual_rate) ** (1 / periods) - 1
+
+
+def get_risk_free_rate():
+    # download 3-month us treasury bills rates
+    annualized = yf.download("^IRX", start="1998-12-31", end="2024-01-01")["Adj Close"]
+
+    # de-annualize
+    daily = annualized.apply(de_annualize)
+
+    # create dataframe
+    return daily
