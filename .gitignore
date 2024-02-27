@@ -36,8 +36,7 @@ Thumbs.db
 
 # CSV-files #
 ######################
-
-/data_raw_parquet/
+**/data_raw_parquet/
 coacs.parquet
 prices.parquet
 prices_daily.parquet
