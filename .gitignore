@@ -45,7 +45,8 @@ daily.parquet
 daily_data.parquet
 
 # Misc #
-/.idea/
+**.idea/
+**__pycache__/
 ######################
 
 
