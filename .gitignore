@@ -47,6 +47,7 @@ daily_data.parquet
 
 /data_raw_parquet/
 /.idea/jupyter-settings.xml
+/data_raw_parquet/
 
 
 # Numpy arrays #
