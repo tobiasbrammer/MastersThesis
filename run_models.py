@@ -81,7 +81,7 @@ for i in range(len(factors)):
     # residuals = pd.read_parquet(f"{factors[i]}.parquet")  # ToDo: Read the data in whatever format it is saved
 
     if use_residual_weights:
-        residual_weights = ""  # ToDo: Load residual weigths beloning to the factor model we are running
+        residual_weights = ""  # ToDo: Load residual weights belonging to the factor model we are running
     else:
         residual_weights = None
 
@@ -97,7 +97,7 @@ for i in range(len(factors)):
         os.makedirs(outdir)
 
     # Estimate (train) model
-    # ToDo: Costs are wrong - They have length_training=1000 and test_size=125 and batchsize=125
+    # ToDo: Costs are wrong - They have length_training=1000 and test_size=125 and batch_size=125
     rets_train, sharpe_train, ret_train, std_train, turnover_train, short_proportion_train = estimate(
         Data=residuals, model=FFT_FFN(), preprocess=preprocess_fourier,
         residual_weights=residual_weights, save_params=True, force_retrain=True, parallelize=False,
