@@ -12,34 +12,34 @@ start = time()
 
 # %% ################## CSV TO PARQUET ##################
 
-# Get all price files in prices_raw_csv
-files = [f for f in os.listdir("prices_raw_csv") if f.endswith(".csv")]
-
-# # Convert each price file to parquet
-print("Converting CSV price files to Parquet...")
-for file in files:
-    # Construct the file path
-    file_path = os.path.join("prices_raw_csv", file)
-    # Read CSV file and try to parse dates
-    df = pl.scan_csv(file_path)
-    # Write to Parquet
-    df.sink_parquet(file_path.replace("csv", "parquet"))
-    del df, file, file_path
-
-# Get all coacs files in coacs_raw_csv
-
-files = [f for f in os.listdir("coacs_raw_csv") if f.endswith(".csv")]
-
-# Convert each coacs file to parquet
-print("Converting CSV coacs files to Parquet...")
-for file in files:
-    # Construct the file path
-    file_path = os.path.join("coacs_raw_csv", file)
-    # Read CSV file and try to parse dates
-    df = pl.scan_csv(file_path)
-    # Write to Parquet
-    df.sink_parquet(file_path.replace("csv", "parquet"))
-    del df, file, file_path
+# # Get all price files in prices_raw_csv
+# files = [f for f in os.listdir("prices_raw_csv") if f.endswith(".csv")]
+#
+# # # Convert each price file to parquet
+# print("Converting CSV price files to Parquet...")
+# for file in files:
+#     # Construct the file path
+#     file_path = os.path.join("prices_raw_csv", file)
+#     # Read CSV file and try to parse dates
+#     df = pl.scan_csv(file_path)
+#     # Write to Parquet
+#     df.sink_parquet(file_path.replace("csv", "parquet"))
+#     del df, file, file_path
+#
+# # Get all coacs files in coacs_raw_csv
+#
+# files = [f for f in os.listdir("coacs_raw_csv") if f.endswith(".csv")]
+#
+# # Convert each coacs file to parquet
+# print("Converting CSV coacs files to Parquet...")
+# for file in files:
+#     # Construct the file path
+#     file_path = os.path.join("coacs_raw_csv", file)
+#     # Read CSV file and try to parse dates
+#     df = pl.scan_csv(file_path)
+#     # Write to Parquet
+#     df.sink_parquet(file_path.replace("csv", "parquet"))
+#     del df, file, file_path
 
 # %% ################## PRICES ##################
 files = [f for f in os.listdir("prices_raw_parquet") if f.endswith(".parquet")]
