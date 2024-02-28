@@ -230,7 +230,10 @@ def train(model, preprocess, df_train, df_dev=None, log_dev_progress=True, log_d
             mean_ret = torch.mean(rets_train)
             std = torch.std(rets_train)
             if objective == "sharpe":
-                loss = -mean_ret / std
+                if std.abs() < 1e-8:
+                    loss = torch.zeros_like(mean_ret)
+                else:
+                    loss = -mean_ret / std
             elif objective == 'meanvar':
                 loss = -mean_ret * 252 + std * 15.9  # Hvor kommer 15.9 fra? 252 er antal handelsdage på et år
             elif objective == 'sqrtMeanSharpe':
@@ -426,7 +429,7 @@ def get_returns(model,
         turnover[0] = torch.mean(turnover[1:])
         mean = torch.mean(rets_test)
         std = torch.std(rets_test)
-        sharpe = -mean / std
+        sharpe = -mean / (std + 1e-8)
         loss = None
 
         if objective == "sharpe":
