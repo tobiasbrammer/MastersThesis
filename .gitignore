@@ -34,9 +34,8 @@
 ehthumbs.db
 Thumbs.db
 
-# CSV-files #
+# Data #
 ######################
-**/data_raw_parquet/
 coacs.parquet
 prices.parquet
 prices_daily.parquet
@@ -45,12 +44,11 @@ daily.parquet
 daily_data.parquet
 
 # Misc #
+######################
 **.idea/
 .idea/
 **__pycache__/
-######################
-
-
+__pycache__/
 
 # Numpy arrays #
 ######################
