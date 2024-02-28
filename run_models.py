@@ -37,6 +37,7 @@ import pickle
 # Initialize parameters
 ########################################################################################################################
 # Get data - (Temporary - maybe keep for the daily_dates?)
+get_daily_data()
 df = pd.read_parquet('daily_data.parquet')[['return']][1:]
 df.replace(np.nan, 0, inplace=True)
 daily_dates = df.index.date
