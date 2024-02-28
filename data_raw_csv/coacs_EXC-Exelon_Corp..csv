@@ -1,0 +1,3 @@
+UIC,Date,BOID,StartDate,UTCEndDateTime,UTCStartDateTime,OldNoOfStocks,NewNoOfStocks,AccSplitFactor,NeedSplit,AccSplitReady,timestamp,EventCode,EventName,Comment,EntitlementId
+15014530,2022-02-02 00:00:00,0,2021-10-20 00:00:00,2022-02-02 05:00:00,2021-10-20 04:00:00,0.7130669951438904,1.0,0.7130669951438904,True,True,b'\x00\x00\x00\x03\xf5S\x1e\x1a',132,Stock Split,,-1
+15014530,2022-04-25 00:00:00,8900006,2022-02-02 00:00:00,2022-04-25 04:00:00,2022-02-02 05:00:00,0.0,0.0,1.0,False,True,b'\x00\x00\x00\x03\xf5S\x1e\x19',231,Odd Lot Sale Purchase	,,-1
