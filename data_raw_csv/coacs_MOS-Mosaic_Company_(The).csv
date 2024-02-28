@@ -1,4 +1,0 @@
-UIC,Date,BOID,StartDate,UTCEndDateTime,UTCStartDateTime,OldNoOfStocks,NewNoOfStocks,AccSplitFactor,NeedSplit,AccSplitReady,timestamp,EventCode,EventName,Comment,EntitlementId
-13969,2022-11-30 00:00:00,8985266,2013-12-03 00:00:00,2022-11-30 05:00:00,2013-12-03 05:00:00,0.9970430135726929,1.0,1.0,False,True,b'\x00\x00\x00\x04U\xc7\x1fp',10,Cash Dividend,,-1
-13969,2023-03-14 00:00:00,9036881,2022-11-30 00:00:00,2023-03-14 04:00:00,2022-11-30 05:00:00,0.9947460293769836,1.0,1.0,False,True,b'\x00\x00\x00\x04U\xc7\x1fo',10,Cash Dividend,,-1
-13969,2023-12-06 00:00:00,9136795,2023-03-14 00:00:00,2023-12-06 05:00:00,2023-03-14 04:00:00,0.9943100214004517,1.0,1.0,False,True,b'\x00\x00\x00\x04U\xc7\x1fn',10,Cash Dividend,,-1
