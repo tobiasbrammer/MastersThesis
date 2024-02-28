@@ -1,4 +1,0 @@
-UIC,Date,BOID,StartDate,UTCEndDateTime,UTCStartDateTime,OldNoOfStocks,NewNoOfStocks,AccSplitFactor,NeedSplit,AccSplitReady,timestamp,EventCode,EventName,Comment,EntitlementId
-27221902,2022-04-25 00:00:00,8904057,1900-01-01 00:00:00,2022-04-25 04:00:00,1900-01-01 00:00:00,0.0,0.0,1.0,False,True,b'\x00\x00\x00\x03\xf5S\x1e`',231,Odd Lot Sale Purchase	,,-1
-27221902,2022-06-27 00:00:00,8943342,2022-04-25 00:00:00,2022-06-27 04:00:00,2022-04-25 04:00:00,0.0,0.0,1.0,False,True,b'\x00\x00\x00\x03\xf5S\x1e_',216,RepurchaseOffer,,-1
-27221902,2022-07-15 00:00:00,8943715,2022-06-27 00:00:00,2022-07-15 04:00:00,2022-06-27 04:00:00,0.0,0.0,1.0,False,True,b'\x00\x00\x00\x03\xf5S\x1e^',231,Odd Lot Sale Purchase	,,-1

@@ -1,3 +1,0 @@
-UIC,Date,BOID,StartDate,UTCEndDateTime,UTCStartDateTime,OldNoOfStocks,NewNoOfStocks,AccSplitFactor,NeedSplit,AccSplitReady,timestamp,EventCode,EventName,Comment,EntitlementId
-15707565,2022-08-29 00:00:00,8963766,2007-03-16 00:00:00,2022-08-29 04:00:00,2007-03-16 04:00:00,1.0,1.0,1.0,False,True,b'\x00\x00\x00\x03\xca8\xf7\xde',213,Exchange,,-1
-15707565,2022-08-29 00:00:00,8964091,2022-08-29 00:00:00,2022-08-29 04:00:00,2022-08-29 04:00:00,1.0,1.0,1.0,False,True,b'\x00\x00\x00\x03\xca8\xf7\xdd',249,Change,,-1

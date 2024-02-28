@@ -1,2 +1,0 @@
-UIC,Date,BOID,StartDate,UTCEndDateTime,UTCStartDateTime,OldNoOfStocks,NewNoOfStocks,AccSplitFactor,NeedSplit,AccSplitReady,timestamp,EventCode,EventName,Comment,EntitlementId
-25592892,2022-09-14 00:00:00,0,1900-01-01 00:00:00,2022-09-14 04:00:00,1900-01-01 00:00:00,0.33333298563957214,1.0,0.33333298563957214,True,True,b'\x00\x00\x00\x04P\xd4\xffc',132,Stock Split,ok,-1
