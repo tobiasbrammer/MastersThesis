@@ -12,6 +12,7 @@ from FFT_FFN import *
 from pre_process import *
 from matplotlib import pyplot as plt
 import yfinance as yf
+from upload_overleaf.upload import upload
 
 
 """
@@ -568,16 +569,19 @@ def test(Data, daily_dates, model, preprocess, residual_weights=None, log_dev_pr
     plt.figure()
     plt.plot_date(daily_dates[-len(cumRets):], cumRets, marker="None", linestyle="-")
     plt.savefig(os.path.join(output_path, model_tag + "_cumulative-returns.png"))
+    upload(plt, "Master's Thesis", f"figures/{model_tag}_cumulative-returns.png")
 
     # Plot turnover
     plt.figure()
     plt.plot_date(daily_dates[-len(cumRets):], turnovers, marker="None", linestyle="-")
     plt.savefig(os.path.join(output_path, model_tag + "_turnover.png"))
+    upload(plt, "Master's Thesis", f"figures/{model_tag}_turnover.png")
 
     # Plot short positions
     plt.figure()
     plt.plot_date(daily_dates[-len(cumRets):], short_proportions, marker="None", linestyle="-")
     plt.savefig(os.path.join(output_path, model_tag + "_short-proportions.png"))
+    upload(plt, "Master's Thesis", f"figures/{model_tag}_short-proportions.png")
 
     np.save(os.path.join(output_path, "WeightsComplete_" + model_tag + ".npy"), all_weights)
 
