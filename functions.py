@@ -175,7 +175,7 @@ def train(model, preprocess, df_train, df_dev=None, log_dev_progress=True, log_d
             weights = torch.zeros((min(batchsize * (i + 1), T - lookback) - batchsize * i, N))  # "device" dropped
 
             # "Logging"
-            print(f"Epoch {epoch} batch {i} weights shape: {weights.shape}")
+            # print(f"Epoch {epoch} batch {i} weights shape: {weights.shape}")
 
             idxs_batch_i = idxs_selected[(batchsize * i):min(batchsize * (i + 1), T - lookback), :]
             input_data_batch_i = windows[(batchsize * i):min(batchsize * (i + 1), T - lookback)][idxs_batch_i]
