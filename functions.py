@@ -203,12 +203,12 @@ def train(model, preprocess, df_train, df_dev=None, log_dev_progress=True, log_d
                 # try:
                 #     weights2 = weights2 / abs_sum
                 # except:
-                    weights2 = weights2 / (abs_sum + 1e-8)
+                weights2 = weights2 / (abs_sum + 1e-8)
 
             # try:
             #     weights = weights / abs_sum
             # except:
-                weights = weights / (abs_sum + 1e-8)
+            weights = weights / (abs_sum + 1e-8)
 
             # noinspection PyArgumentList
             rets_train = torch.sum(
@@ -407,12 +407,12 @@ def get_returns(model,
             # try:
             #     weights2 = weights2 / abs_sum
             # except:
-                weights2 = weights2 / (abs_sum + 1e-8)
+            weights2 = weights2 / (abs_sum + 1e-8)
 
         # try:
         #     weights = weights / abs_sum
         # except:
-            weights = weights / (abs_sum + 1e-8)
+        weights = weights / (abs_sum + 1e-8)
 
         # noinspection PyArgumentList
         rets_test = torch.sum(weights * torch.tensor(df_test[lookback:T, :], device=device), axis=1)
