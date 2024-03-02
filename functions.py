@@ -200,14 +200,14 @@ def train(model, preprocess, df_train, df_dev=None, log_dev_progress=True, log_d
                 # noinspection PyArgumentList
                 abs_sum = torch.sum(torch.abs(weights2), axis=1, keepdim=True)
                 # Normalize weights by the sum of their absolute values
-                try:
-                    weights2 = weights2 / abs_sum
-                except:
+                # try:
+                #     weights2 = weights2 / abs_sum
+                # except:
                     weights2 = weights2 / (abs_sum + 1e-8)
 
-            try:
-                weights = weights / abs_sum
-            except:
+            # try:
+            #     weights = weights / abs_sum
+            # except:
                 weights = weights / (abs_sum + 1e-8)
 
             # noinspection PyArgumentList
@@ -404,14 +404,14 @@ def get_returns(model,
             # noinspection PyArgumentList
             abs_sum = torch.sum(torch.abs(weights2), axis=1, keepdim=True)
 
-            try:
-                weights2 = weights2 / abs_sum
-            except:
+            # try:
+            #     weights2 = weights2 / abs_sum
+            # except:
                 weights2 = weights2 / (abs_sum + 1e-8)
 
-        try:
-            weights = weights / abs_sum
-        except:
+        # try:
+        #     weights = weights / abs_sum
+        # except:
             weights = weights / (abs_sum + 1e-8)
 
         # noinspection PyArgumentList
