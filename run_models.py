@@ -12,7 +12,7 @@ import pickle
 #       (see top of page 22 in Deep Learning Statistical Arbitrage))
 
 #   c) We also need to get the risk-free rate
-#       - Done (using yf's 3 months treasure bill
+#       - Done (using yf's 3 months treasure bill)
 
 # 2. Set everything up for the other models
 #   a) Set up for OU model (Everything is ready to be fit into the train/test functions I believe)
@@ -48,7 +48,7 @@ daily_dates = df.index.date
 df = np.array(df)
 df = np.nan_to_num(df, nan=0, posinf=0, neginf=0)
 
-residuals = df  # temporary residual matrix
+res_pca_path = "factor_outputs/OOSResiduals_PCA_factor5_rollingwindow_60.npy"
 residual_weights = None  # The residual composition matrix
 use_residual_weights = False  # Should be True
 
@@ -73,11 +73,9 @@ results_dict = {}
 
 # Set up data
 # Load IPCA, PCA, and Fama-French factors - ToDo: Files for our residual data should be in the list:
-factors = ['PCA', 'IPCA', 'FamaFrench']
+factors = [res_pca_path]   # ['PCA', 'IPCA', 'FamaFrench']
 
-# Testing:
-factors = ['TEST']
-residuals = df
+
 
 
 for i in range(len(factors)):
@@ -85,7 +83,8 @@ for i in range(len(factors)):
     print(f"Testing factor model: {factors[i]}")
     start_time = time.time()
 
-    # residuals = pd.read_parquet(f"{factors[i]}.parquet")  # ToDo: Read the data in whatever format it is saved
+    residuals = np.load(factors[i])
+    # Residuals er TxNxN fordi at den indeholder vores portfølje for HVER asset
 
     if use_residual_weights:
         residual_weights = ""  # ToDo: Load residual weights belonging to the factor model we are running
@@ -95,7 +94,7 @@ for i in range(len(factors)):
     # Define model
     model = model_name()
     preprocess = preprocess_fourier
-    model_tag = model_tag + f"_{factors[i]}"
+    model_tag = model_tag
 
     print("Starting: " + model_tag)
 
@@ -122,8 +121,8 @@ for i in range(len(factors)):
         force_retrain=True, parallelize=False,
         log_dev_progress_freq=10, log_plot_freq=149, device=None,
         device_ids=[0, 1, 2, 3, 4, 5, 6, 7], output_path=outdir,
-        num_epochs=100, lr=0.001, early_stopping=False,
-        model_tag=model_tag, batchsize=125, retrain_freq=125,
+        num_epochs=10, lr=0.001, early_stopping=False,
+        model_tag=model_tag, batchsize=50, retrain_freq=125,
         rolling_retrain=True, length_training=200, lookback=30,
         trans_cost=0, hold_cost=0, objective=objective
     )

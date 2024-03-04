@@ -12,6 +12,7 @@ from FFT_FFN import *
 from pre_process import *
 from matplotlib import pyplot as plt
 import yfinance as yf
+from upload_overleaf.upload import upload
 
 
 """
@@ -174,7 +175,7 @@ def train(model, preprocess, df_train, df_dev=None, log_dev_progress=True, log_d
             weights = torch.zeros((min(batchsize * (i + 1), T - lookback) - batchsize * i, N))  # "device" dropped
 
             # "Logging"
-            print(f"Epoch {epoch} batch {i} weights shape: {weights.shape}")
+            # print(f"Epoch {epoch} batch {i} weights shape: {weights.shape}")
 
             idxs_batch_i = idxs_selected[(batchsize * i):min(batchsize * (i + 1), T - lookback), :]
             input_data_batch_i = windows[(batchsize * i):min(batchsize * (i + 1), T - lookback)][idxs_batch_i]
@@ -200,15 +201,10 @@ def train(model, preprocess, df_train, df_dev=None, log_dev_progress=True, log_d
                 # noinspection PyArgumentList
                 abs_sum = torch.sum(torch.abs(weights2), axis=1, keepdim=True)
                 # Normalize weights by the sum of their absolute values
-                try:
-                    weights2 = weights2 / abs_sum
-                except:
-                    weights2 = weights2 / (abs_sum + 1e-8)
+                weights2 = weights2 / (abs_sum + 1e-8)
 
-            try:
-                weights = weights / abs_sum
-            except:
-                weights = weights / (abs_sum + 1e-8)
+
+            weights = weights / (abs_sum + 1e-8)
 
             # noinspection PyArgumentList
             rets_train = torch.sum(
@@ -231,7 +227,7 @@ def train(model, preprocess, df_train, df_dev=None, log_dev_progress=True, log_d
             std = torch.std(rets_train)
             if objective == "sharpe":
                 if std.abs() < 1e-8:
-                    loss = torch.zeros_like(mean_ret)
+                    raise ValueError("Std is zero")
                 else:
                     loss = -mean_ret / std
             elif objective == 'meanvar':
@@ -404,15 +400,9 @@ def get_returns(model,
             # noinspection PyArgumentList
             abs_sum = torch.sum(torch.abs(weights2), axis=1, keepdim=True)
 
-            try:
-                weights2 = weights2 / abs_sum
-            except:
-                weights2 = weights2 / (abs_sum + 1e-8)
+            weights2 = weights2 / (abs_sum + 1e-8)
 
-        try:
-            weights = weights / abs_sum
-        except:
-            weights = weights / (abs_sum + 1e-8)
+        weights = weights / (abs_sum + 1e-8)
 
         # noinspection PyArgumentList
         rets_test = torch.sum(weights * torch.tensor(df_test[lookback:T, :], device=device), axis=1)
@@ -568,16 +558,19 @@ def test(Data, daily_dates, model, preprocess, residual_weights=None, log_dev_pr
     plt.figure()
     plt.plot_date(daily_dates[-len(cumRets):], cumRets, marker="None", linestyle="-")
     plt.savefig(os.path.join(output_path, model_tag + "_cumulative-returns.png"))
+    upload(plt, "Master's Thesis", f"figures/{model_tag}_cumulative-returns.png")
 
     # Plot turnover
     plt.figure()
     plt.plot_date(daily_dates[-len(cumRets):], turnovers, marker="None", linestyle="-")
     plt.savefig(os.path.join(output_path, model_tag + "_turnover.png"))
+    upload(plt, "Master's Thesis", f"figures/{model_tag}_turnover.png")
 
     # Plot short positions
     plt.figure()
     plt.plot_date(daily_dates[-len(cumRets):], short_proportions, marker="None", linestyle="-")
     plt.savefig(os.path.join(output_path, model_tag + "_short-proportions.png"))
+    upload(plt, "Master's Thesis", f"figures/{model_tag}_short-proportions.png")
 
     np.save(os.path.join(output_path, "WeightsComplete_" + model_tag + ".npy"), all_weights)
 
