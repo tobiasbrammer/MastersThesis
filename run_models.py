@@ -37,14 +37,16 @@ import pickle
 # Initialize parameters
 ########################################################################################################################
 # Get data - (Temporary - maybe keep for the daily_dates?)
-# Test if daily_data.parquet exists
+# Test if daily_data.parquet exists, else get it
 if not os.path.exists('daily_data.parquet'):
+    print("Downloading daily data")
     get_daily_data()
 
 df = pd.read_parquet('daily_data.parquet')[['return']][1:]
 df.replace(np.nan, 0, inplace=True)
 daily_dates = df.index.date
 df = np.array(df)
+df = np.nan_to_num(df, nan=0, posinf=0, neginf=0)
 
 res_pca_path = "factor_outputs/OOSResiduals_PCA_factor5_rollingwindow_60.npy"
 residual_weights = None  # The residual composition matrix
@@ -65,13 +67,14 @@ torch.backends.cudnn.deterministic = False
 model_name = FFT_FFN
 model_name_ = "FFT_FFN"  # For saving in correct directory
 factor_models = {"IPCA": [5], "PCA": [5], "FamaFrench": [5]}  # We are only running 5-factor models (for now)
-objective = 'sharpe'
+objective = 'sharpe' # Can be 'sharpe', 'meanvar' or 'sqrtMeanSharpe'
 cwd = os.getcwd()
 results_dict = {}
 
 # Set up data
 # Load IPCA, PCA, and Fama-French factors - ToDo: Files for our residual data should be in the list:
 factors = [res_pca_path]   # ['PCA', 'IPCA', 'FamaFrench']
+
 
 
 for i in range(len(factors)):
@@ -99,15 +102,15 @@ for i in range(len(factors)):
         os.makedirs(outdir)
 
     # Estimate (train) model
-    # ToDo: Costs are wrong - They have length_training=1000 and test_size=125 and batch_size=125 and epoch=100
-    # rets_train, sharpe_train, ret_train, std_train, turnover_train, short_proportion_train = estimate(
-    #     Data=residuals, model=FFT_FFN(), preprocess=preprocess_fourier,
-    #     residual_weights=residual_weights, save_params=True, force_retrain=True, parallelize=False,
-    #     log_dev_progress_freq=10,
-    #     device=None, device_ids=[0, 1, 2, 3, 4, 5, 6, 7], output_path=outdir, num_epochs=10,
-    #     lr=0.001, early_stopping=False, model_tag=model_tag, batchsize=50, length_training=200, test_size=50,
-    #     lookback=30, trans_cost=0, hold_cost=0, objective="sharpe"
-    # )
+    # ToDo: Costs are wrong - They have length_training=1000 and test_size=125 and batch_size=125
+    rets_train, sharpe_train, ret_train, std_train, turnover_train, short_proportion_train = estimate(
+        Data=residuals, model=FFT_FFN(), preprocess=preprocess_fourier,
+        residual_weights=residual_weights, save_params=True, force_retrain=True, parallelize=False,
+        log_dev_progress_freq=10,
+        device=None, device_ids=[0, 1, 2, 3, 4, 5, 6, 7], output_path=outdir, num_epochs=100,
+        lr=0.00000001, early_stopping=False, model_tag=model_tag, batchsize=50, length_training=200, test_size=50,
+        lookback=30, trans_cost=0, hold_cost=0, objective=objective
+    )
 
     # Test model
     rets_test, sharpe_test, ret_test, std_test, turnover_test, short_proportion_test = test(
@@ -120,7 +123,7 @@ for i in range(len(factors)):
         num_epochs=10, lr=0.001, early_stopping=False,
         model_tag=model_tag, batchsize=50, retrain_freq=125,
         rolling_retrain=True, length_training=200, lookback=30,
-        trans_cost=0, hold_cost=0, objective="sharpe"
+        trans_cost=0, hold_cost=0, objective=objective
     )
 
     results_dict[model_tag] = {
