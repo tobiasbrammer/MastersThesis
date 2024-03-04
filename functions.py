@@ -200,15 +200,9 @@ def train(model, preprocess, df_train, df_dev=None, log_dev_progress=True, log_d
                 # noinspection PyArgumentList
                 abs_sum = torch.sum(torch.abs(weights2), axis=1, keepdim=True)
                 # Normalize weights by the sum of their absolute values
-                try:
-                    weights2 = weights2 / abs_sum
-                except:
-                    weights2 = weights2 / (abs_sum + 1e-8)
+                weights2 = weights2 / (abs_sum + 1e-8)
 
-            try:
-                weights = weights / abs_sum
-            except:
-                weights = weights / (abs_sum + 1e-8)
+            weights = weights / (abs_sum + 1e-8)
 
             # noinspection PyArgumentList
             rets_train = torch.sum(
@@ -231,7 +225,7 @@ def train(model, preprocess, df_train, df_dev=None, log_dev_progress=True, log_d
             std = torch.std(rets_train)
             if objective == "sharpe":
                 if std.abs() < 1e-8:
-                    loss = torch.zeros_like(mean_ret)
+                    raise ValueError("Std is zero")
                 else:
                     loss = -mean_ret / std
             elif objective == 'meanvar':
@@ -404,15 +398,9 @@ def get_returns(model,
             # noinspection PyArgumentList
             abs_sum = torch.sum(torch.abs(weights2), axis=1, keepdim=True)
 
-            try:
-                weights2 = weights2 / abs_sum
-            except:
-                weights2 = weights2 / (abs_sum + 1e-8)
+            weights2 = weights2 / (abs_sum + 1e-8)
 
-        try:
-            weights = weights / abs_sum
-        except:
-            weights = weights / (abs_sum + 1e-8)
+        weights = weights / (abs_sum + 1e-8)
 
         # noinspection PyArgumentList
         rets_test = torch.sum(weights * torch.tensor(df_test[lookback:T, :], device=device), axis=1)

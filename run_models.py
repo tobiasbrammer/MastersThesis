@@ -12,7 +12,7 @@ import pickle
 #       (see top of page 22 in Deep Learning Statistical Arbitrage))
 
 #   c) We also need to get the risk-free rate
-#       - Done (using yf's 3 months treasure bill
+#       - Done (using yf's 3 months treasure bill)
 
 # 2. Set everything up for the other models
 #   a) Set up for OU model (Everything is ready to be fit into the train/test functions I believe)
@@ -46,7 +46,7 @@ df.replace(np.nan, 0, inplace=True)
 daily_dates = df.index.date
 df = np.array(df)
 
-residuals = df  # temporary residual matrix
+res_pca_path = "factor_outputs/OOSResiduals_PCA_factor5_rollingwindow_60.npy"
 residual_weights = None  # The residual composition matrix
 use_residual_weights = False  # Should be True
 
@@ -71,18 +71,16 @@ results_dict = {}
 
 # Set up data
 # Load IPCA, PCA, and Fama-French factors - ToDo: Files for our residual data should be in the list:
-factors = ['PCA', 'IPCA', 'FamaFrench']
+factors = [res_pca_path]   # ['PCA', 'IPCA', 'FamaFrench']
 
-# Testing:
-factors = ['TEST']
-residuals = df
 
 for i in range(len(factors)):
 
     print(f"Testing factor model: {factors[i]}")
     start_time = time.time()
 
-    # residuals = pd.read_parquet(f"{factors[i]}.parquet")  # ToDo: Read the data in whatever format it is saved
+    residuals = np.load(factors[i])
+    # Residuals er TxNxN fordi at den indeholder vores portfølje for HVER asset
 
     if use_residual_weights:
         residual_weights = ""  # ToDo: Load residual weights belonging to the factor model we are running
@@ -92,7 +90,7 @@ for i in range(len(factors)):
     # Define model
     model = model_name()
     preprocess = preprocess_fourier
-    model_tag = model_tag + f"_{factors[i]}"
+    model_tag = model_tag
 
     print("Starting: " + model_tag)
 
@@ -101,15 +99,15 @@ for i in range(len(factors)):
         os.makedirs(outdir)
 
     # Estimate (train) model
-    # ToDo: Costs are wrong - They have length_training=1000 and test_size=125 and batch_size=125
-    rets_train, sharpe_train, ret_train, std_train, turnover_train, short_proportion_train = estimate(
-        Data=residuals, model=FFT_FFN(), preprocess=preprocess_fourier,
-        residual_weights=residual_weights, save_params=True, force_retrain=True, parallelize=False,
-        log_dev_progress_freq=10,
-        device=None, device_ids=[0, 1, 2, 3, 4, 5, 6, 7], output_path=outdir, num_epochs=100,
-        lr=0.001, early_stopping=False, model_tag=model_tag, batchsize=50, length_training=200, test_size=50,
-        lookback=30, trans_cost=0, hold_cost=0, objective="sharpe"
-    )
+    # ToDo: Costs are wrong - They have length_training=1000 and test_size=125 and batch_size=125 and epoch=100
+    # rets_train, sharpe_train, ret_train, std_train, turnover_train, short_proportion_train = estimate(
+    #     Data=residuals, model=FFT_FFN(), preprocess=preprocess_fourier,
+    #     residual_weights=residual_weights, save_params=True, force_retrain=True, parallelize=False,
+    #     log_dev_progress_freq=10,
+    #     device=None, device_ids=[0, 1, 2, 3, 4, 5, 6, 7], output_path=outdir, num_epochs=10,
+    #     lr=0.001, early_stopping=False, model_tag=model_tag, batchsize=50, length_training=200, test_size=50,
+    #     lookback=30, trans_cost=0, hold_cost=0, objective="sharpe"
+    # )
 
     # Test model
     rets_test, sharpe_test, ret_test, std_test, turnover_test, short_proportion_test = test(
@@ -119,8 +117,8 @@ for i in range(len(factors)):
         force_retrain=True, parallelize=False,
         log_dev_progress_freq=10, log_plot_freq=149, device=None,
         device_ids=[0, 1, 2, 3, 4, 5, 6, 7], output_path=outdir,
-        num_epochs=100, lr=0.001, early_stopping=False,
-        model_tag=model_tag, batchsize=125, retrain_freq=125,
+        num_epochs=10, lr=0.001, early_stopping=False,
+        model_tag=model_tag, batchsize=50, retrain_freq=125,
         rolling_retrain=True, length_training=200, lookback=30,
         trans_cost=0, hold_cost=0, objective="sharpe"
     )
