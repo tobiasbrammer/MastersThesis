@@ -8,8 +8,8 @@ import pickle
 #   a) Get residual data for IPCA and Fama-French
 #       - Done for PCA
 
-#   b) Get data for residual_weights (still not sure what that is - I think its the residual composition matrix
-#       (see top of page 22 in Deep Learning Statistical Arbitrage))
+#   b) Get data for residual_weights
+#       - Done
 
 #   c) We also need to get the risk-free rate
 #       - Done (using yf's 3 months treasure bill)
@@ -49,8 +49,8 @@ df = np.array(df)
 df = np.nan_to_num(df, nan=0, posinf=0, neginf=0)
 
 res_pca_path = "factor_outputs/OOSResiduals_PCA_factor5_rollingwindow_60.npy"
-residual_weights = None  # The residual composition matrix
-use_residual_weights = False  # Should be True
+# residual_weights = None  # The residual composition matrix
+use_residual_weights = True  # Should be True
 
 # FFT model_tag
 model_tag = "FFT"  # ToDo: What do we want to include? lookback, objective, trans_cost, hold_cost, num_epochs, lr ??
@@ -67,15 +67,13 @@ torch.backends.cudnn.deterministic = False
 model_name = FFT_FFN
 model_name_ = "FFT_FFN"  # For saving in correct directory
 factor_models = {"IPCA": [5], "PCA": [5], "FamaFrench": [5]}  # We are only running 5-factor models (for now)
-objective = 'sharpe' # Can be 'sharpe', 'meanvar' or 'sqrtMeanSharpe'
+objective = 'sharpe'  # Can be 'sharpe', 'meanvar' or 'sqrtMeanSharpe'
 cwd = os.getcwd()
 results_dict = {}
 
 # Set up data
 # Load IPCA, PCA, and Fama-French factors - ToDo: Files for our residual data should be in the list:
-factors = [res_pca_path]   # ['PCA', 'IPCA', 'FamaFrench']
-
-
+factors = [res_pca_path]  # ['PCA', 'IPCA', 'FamaFrench']
 
 
 for i in range(len(factors)):
@@ -87,7 +85,8 @@ for i in range(len(factors)):
     # Residuals er TxNxN fordi at den indeholder vores portfølje for HVER asset
 
     if use_residual_weights:
-        residual_weights = ""  # ToDo: Load residual weights belonging to the factor model we are running
+        # ToDo: Skal laves noget så den kan hente de rigtige
+        residual_weights = np.load("factor_outputs/OOSResidualsmatrix_PCA_factor5_rollingwindow_60.npy")
     else:
         residual_weights = None
 
@@ -103,28 +102,25 @@ for i in range(len(factors)):
         os.makedirs(outdir)
 
     # Estimate (train) model
+    # ToDo: So should we use data from 1945-1998 for this training func. and then rest for test?
     # ToDo: Costs are wrong - They have length_training=1000 and test_size=125 and batch_size=125
     rets_train, sharpe_train, ret_train, std_train, turnover_train, short_proportion_train = estimate(
         Data=residuals, model=FFT_FFN(), preprocess=preprocess_fourier,
         residual_weights=residual_weights, save_params=True, force_retrain=True, parallelize=False,
         log_dev_progress_freq=10,
-        device=None, device_ids=[0, 1, 2, 3, 4, 5, 6, 7], output_path=outdir, num_epochs=100,
-        lr=0.00000001, early_stopping=False, model_tag=model_tag, batchsize=50, length_training=200, test_size=50,
+        device=None, device_ids=[0, 1, 2, 3, 4, 5, 6, 7], output_path=outdir, num_epochs=10,
+        lr=0.001, early_stopping=False, model_tag=model_tag, batchsize=50, length_training=200, test_size=50,
         lookback=30, trans_cost=0, hold_cost=0, objective=objective
     )
 
     # Test model
     rets_test, sharpe_test, ret_test, std_test, turnover_test, short_proportion_test = test(
         Data=residuals, daily_dates=daily_dates, model=FFT_FFN(),
-        preprocess=preprocess_fourier,
-        residual_weights=residual_weights, save_params=True,
-        force_retrain=True, parallelize=False,
-        log_dev_progress_freq=10, log_plot_freq=149, device=None,
+        preprocess=preprocess_fourier, residual_weights=residual_weights, save_params=True, force_retrain=True,
+        parallelize=False, log_dev_progress_freq=10, log_plot_freq=149, device=None,
         device_ids=[0, 1, 2, 3, 4, 5, 6, 7], output_path=outdir,
-        num_epochs=10, lr=0.001, early_stopping=False,
-        model_tag=model_tag, batchsize=50, retrain_freq=125,
-        rolling_retrain=True, length_training=200, lookback=30,
-        trans_cost=0, hold_cost=0, objective=objective
+        num_epochs=10, lr=0.001, early_stopping=False, model_tag=model_tag, batchsize=50, retrain_freq=125,
+        rolling_retrain=True, length_training=200, lookback=30, trans_cost=0, hold_cost=0, objective=objective
     )
 
     results_dict[model_tag] = {
@@ -140,4 +136,4 @@ for i in range(len(factors)):
     with open(f"{cwd}/results/{model_tag}_results.pkl", "wb") as f:
         pickle.dump(results_dict, f)
 
-    print(f"Time for {model_name_} factor model {factors[i]}: {time.time() - start_time}")
+    print(f"Time for {model_name_} factor model {factors[i]}: {(time.time() - start_time) / 60} minutes")
