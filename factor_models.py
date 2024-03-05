@@ -89,6 +89,7 @@ def pca(factor_list: list, sizeCovarianceWindow, sizeWindow, intitialOOSYear, df
 
                 Nprime = len(res_cov_window[-1:, :].ravel())
                 MatrixFull = np.zeros((N, N))
+                # MatrixReduced = I - 1 / res_vol * weights * beta.T  (equation 1 in DLSA)
                 MatrixReduced = (np.eye(Nprime) - np.diag(1 / res_vol.squeeze()) @ old_loadings @ loadings.T)
                 idxsSelected2 = idxsSelected.reshape((N, 1)) @ idxsSelected.reshape((1, N))
                 MatrixFull[idxsSelected2] = MatrixReduced.ravel()
@@ -102,7 +103,11 @@ def pca(factor_list: list, sizeCovarianceWindow, sizeWindow, intitialOOSYear, df
         print(f"Finished for factor {factor}")
 
         np.save(os.path.join(os.getcwd() + "/factor_outputs",
-                             f'OOSResiduals_PCA_factor{factor}_rollingwindow_{sizeWindow}.npy'), residualMatricesOOS)
+                             f'OOSResidualsmatrix_PCA_factor{factor}_rollingwindow_{sizeWindow}.npy'),
+                residualMatricesOOS)
+        np.save(os.path.join(os.getcwd() + "/factor_outputs",
+                             f'OOSResiduals_PCA_factor{factor}_rollingwindow_{sizeWindow}.npy'),
+                residualsOOS)
 
         print(f"Took {(time.time() - start_time) / 60} minutes to run PCA")
 
