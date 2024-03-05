@@ -131,7 +131,6 @@ def train(model, preprocess, df_train, df_dev=None, log_dev_progress=True, log_d
     if device is None:
         device = model.device
 
-    residual_weights_train = None
     if residual_weights_train is not None:
         residual_weights_train = residual_weights_train[:, assets_to_trade]
 
@@ -227,7 +226,8 @@ def train(model, preprocess, df_train, df_dev=None, log_dev_progress=True, log_d
             std = torch.std(rets_train)
             if objective == "sharpe":
                 if std.abs() < 1e-8:
-                    raise ValueError("Std is zero")
+                    # raise ValueError("Std is zero")
+                    loss = -mean_ret / (std + 1e-8)
                 else:
                     loss = -mean_ret / std
             elif objective == 'meanvar':
@@ -460,6 +460,7 @@ def test(Data, daily_dates, model, preprocess, residual_weights=None, log_dev_pr
 
     # Initialize
     Data = Data[:, assets_to_trade]
+
     T, N = Data.shape
     returns = np.zeros(T - length_training)
     turnovers = np.zeros(T - length_training)
@@ -477,7 +478,7 @@ def test(Data, daily_dates, model, preprocess, residual_weights=None, log_dev_pr
         if Ndifference > 0:
             all_weights = np.zeros((T - length_training, len(assets_to_trade) + Ndifference))
             assets_to_trade = np.append(assets_to_trade, np.ones(Ndifference, dtype=np.bool))
-    if residual_weights is not None and ("IPCA" or "Deep" in model_tag):
+    if residual_weights is not None and ("IPCA" in model_tag or "Deep" in model_tag):
         assets_to_trade = np.load("")  # Load residuals from IPCA or "Deep" universe?
         all_weights = np.zeros((T - length_training, len(assets_to_trade)))
 
@@ -594,7 +595,8 @@ def get_daily_data():
     """
 
     # Get tickers
-    tickers = pd.read_parquet('daily.parquet')['ticker'].unique()
+    # tickers = pd.read_parquet('daily.parquet')['ticker'].unique()
+    tickers = pd.read_csv('tickers.csv')['ticker'].unique()
     risk_free = get_risk_free_rate()
 
     # Get data
