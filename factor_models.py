@@ -4,6 +4,9 @@ import pandas as pd
 import time
 from tqdm import tqdm
 from sklearn.linear_model import LinearRegression
+import warnings
+import yfinance as yf
+
 
 """
 Run factor models
@@ -16,7 +19,8 @@ def run_factor_models():
     sizeCovarianceWindow = 252
     sizeWindow = 60
     intitialOOSYear = 2000
-    df = pd.read_parquet('daily_data.parquet')
+    # df = pd.read_parquet('daily_data.parquet')
+    df = get_daily_data()
 
     # Fix NaN values
     df = df['return']
@@ -114,6 +118,51 @@ def pca(factor_list: list, sizeCovarianceWindow, sizeWindow, intitialOOSYear, df
     return
 
 
+# Need this to run code from super-computer
+def get_daily_data():
+    """
+    Returns daily excess returns, adjusted close, and volume
+    """
+
+    # Get tickers
+    # tickers = pd.read_parquet('daily.parquet')['ticker'].unique()
+    tickers = pd.read_csv('tickers.csv')['ticker'].unique()
+    risk_free = get_risk_free_rate()
+
+    # Get data
+    data = []
+    for tick in tqdm(tickers, desc='Downloading data', miniters=10):
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=FutureWarning)
+            df = yf.download(tick, start="1998-12-31", end="2024-01-01", progress=False)
+        df['ticker'] = tick
+        df['return'] = np.log(df['Adj Close']) - np.log(df['Adj Close'].shift(1)) - risk_free
+        data.append(df[['ticker', 'Adj Close', 'Volume', 'return']])
+
+    data = pd.concat(data)
+    data = data[~(data['ticker'].isna())]
+    data = data.pivot(columns='ticker')
+
+    # Save data
+    data.to_parquet('daily_data.parquet')
+
+    return data
+
+
+def de_annualize(annual_rate, periods=365):
+    return (1 + annual_rate) ** (1 / periods) - 1
+
+
+def get_risk_free_rate():
+    # download 3-month us treasury bills rates
+    annualized = yf.download("^IRX", start="1998-12-31", end="2024-01-01")["Adj Close"]
+
+    # de-annualize
+    daily = annualized.apply(de_annualize)
+
+    # create dataframe
+    return daily
+
+
 if __name__ == "__main__":
     run_factor_models()
-    
