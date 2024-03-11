@@ -112,3 +112,8 @@ def pca(factor_list: list, sizeCovarianceWindow, sizeWindow, intitialOOSYear, df
         print(f"Took {(time.time() - start_time) / 60} minutes to run PCA")
 
     return
+
+
+if __name__ == "__main__":
+    run_factor_models()
+    
