@@ -1,0 +1,39 @@
+model_name: CNNTransformer_FFN
+lookback: 30
+dropout: 0.25
+filter_numbers: [1, 8]  # Has to be changed directly in the model class
+filter_size: 2
+attention_heads: 4
+hidden_units_factor: 2 # multiplicand of last item in `filter_numbers`; determines number of hidden units(e.g. 2*8 = 16)
+normalization_conv: True # normalize convolutions or not
+use_transformer: True
+use_convolution: True
+hidden_units: [4, 4, 4, 4] # must start with 30
+
+# Data parameters
+preprocess_func: "preprocess_cnn" # name of a function defined in pre_process.py
+use_residual_weights: False # use residual composition matrix to compute turnover, short proportion, etc.
+factor_models: # number of factors per residual time series to test, for each factor model
+  { "IPCA": [5], "PCA": [5], "FamaFrench": [5] }
+num_epochs: 100
+lr: 0.001
+batchsize: 125
+# If mode=='estimate', this is the number of obs used to form a test set (chronologically after the training set)
+retrain_freq: 125
+rolling_retrain: True # Set to False for no rolling retraining (i.e. train once, test for all data past training set)
+force_retrain: True # Force the model to be trained, even if existing weights for the model are saved on disk
+length_training: 1000 # Size of rolling training window in trading days
+early_stopping: True # Employ early stopping or not
+objective: "sharpe"
+# Market frictions parameters
+market_frictions: True # enable or disable
+trans_cost: 0 # cost in bps per txn side per equity, e.g. 0.0005
+hold_cost: 0.0001 # cost in bps for short positions per equity per day, e.g. 0.0001
+parallelize: True
+
+# Mine
+res_pca_path: "factor_outputs/OOSResiduals_PCA_factor5_rollingwindow_60.npy"
+model_tag: "CNNTransfomrer"  # ToDo: What do we want to include? lookback, objective, trans_cost, hold_cost, num_epochs, lr ??
+model_name_: "CNNTransformer_FFN"  # For saving in correct directory
+residual_weights: "factor_outputs/OOSResidualsmatrix_PCA_factor5_rollingwindow_60.npy"
+device: "cpu"

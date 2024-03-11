@@ -1,17 +1,16 @@
+import torch
+import torch.nn as nn
+
+
 ########################################################################################################################
 # The objective of this class is to run the Ornstein–Uhlenbeck, followed by a Feed-Forward Neural Network
 # (FFN) to predict the stock price of a given company.
 ########################################################################################################################
-
-
-import torch
-import torch.nn as nn
-
 # Defining the custom model class
 class OU_FFN(nn.Module):
     def __init__(
         self,
-        logdir,
+        # logdir,
         lookback=30,
         random_seed=0,
         device="cpu",
@@ -22,7 +21,7 @@ class OU_FFN(nn.Module):
         super(OU_FFN, self).__init__()
 
         # Setting class instance properties
-        self.logdir = logdir
+        # self.logdir = logdir
         self.random_seed = random_seed
 
         # Setting the seed for generating random numbers

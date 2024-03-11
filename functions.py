@@ -9,11 +9,13 @@ import warnings
 import time
 from torch.optim import Adam
 from FFT_FFN import *
+from OU_FFN import *
+from CNNTransformer_FFN import *
 from pre_process import *
 from matplotlib import pyplot as plt
 import yfinance as yf
 from upload_overleaf.upload import upload
-
+import pickle
 
 """
 Estimate function
@@ -22,10 +24,9 @@ Estimate function
 
 def estimate(Data, model, preprocess, residual_weights=None, log_dev_progress_freq=50,
              num_epochs=100, lr=0.001, batchsize=150, early_stopping=False, save_params=True,
-             device="cpu", output_path=os.path.join(os.getcwd(), "results", "Unknown"), model_tag="Unknown",
+             device=None, output_path=os.path.join(os.getcwd(), "results", "Unknown"), model_tag="Unknown",
              lookback=30, length_training=1000, test_size=125, parallelize=True, device_ids=[0, 1, 2, 3, 4, 5, 6, 7],
              trans_cost=0, hold_cost=0, force_retrain=True, objective="sharpe", estimate_start_idx=0):
-
     # Assets to trade
     assets_to_trade = np.count_nonzero(Data, axis=0) >= lookback
     Data = Data[:, assets_to_trade]
@@ -202,7 +203,6 @@ def train(model, preprocess, df_train, df_dev=None, log_dev_progress=True, log_d
                 # Normalize weights by the sum of their absolute values
                 weights2 = weights2 / (abs_sum + 1e-8)
 
-
             weights = weights / (abs_sum + 1e-8)
 
             # noinspection PyArgumentList
@@ -263,7 +263,8 @@ def train(model, preprocess, df_train, df_dev=None, log_dev_progress=True, log_d
                     (rets_dev, dev_loss, dev_sharpe, dev_turnovers, dev_short_proportions, weights_dev,
                      a2t) = get_returns(
                         model, preprocess=preprocess, objective=objective, df_test=df_dev, lookback=lookback,
-                        trans_cost=trans_cost, hold_cost=hold_cost, residual_weights=residual_weights_dev)
+                        trans_cost=trans_cost, hold_cost=hold_cost, residual_weights=residual_weights_dev,
+                        device=device)
                     model.train()
                     dev_mean_ret = np.mean(rets_dev)
                     dev_std = np.std(rets_dev)
@@ -359,11 +360,14 @@ def get_returns(model,
                 hold_cost,
                 residual_weights=None,
                 load_params=False,
+                device=None,
                 paths_checkpoints=[None],
                 parallelize=False,
                 device_ids=[0, 1, 2, 3, 4, 5, 6, 7]):
+
     # Get device
-    device = model.device
+    if device is None:
+        device = model.device
     if parallelize:
         model = nn.DataParallel(model, device_ids).to(device)
 
@@ -448,7 +452,7 @@ Test function
 
 
 def test(Data, daily_dates, model, preprocess, residual_weights=None, log_dev_progress_freq=50, log_plot_freq=199,
-         num_epochs=100, lr=0.001, batchsize=150, early_stopping=False, save_params=True, device='cpu',
+         num_epochs=100, lr=0.001, batchsize=150, early_stopping=False, save_params=True, device=None,
          output_path=os.path.join(os.getcwd(), "results", "Unknown"), model_tag="Unknown", lookback=30,
          retrain_freq=250, length_training=1000, rolling_retrain=True, parallelize=True,
          device_ids=[0, 1, 2, 3, 4, 5, 6, 7], trans_cost=0, hold_cost=0, force_retrain=False, objective="sharpe"):
@@ -501,19 +505,19 @@ def test(Data, daily_dates, model, preprocess, residual_weights=None, log_dev_pr
         if rolling_retrain or t == 0:
             model_t = model
             rets_t, turns_t, shorts_t, weights_t, a2t = train(model=model_t, preprocess=preprocess,
-                                                               df_train=data_train_t,
-                                                               df_dev=data_test_t,  # No validation is done
-                                                               residual_weights_train=residual_weights_train_t,
-                                                               residual_weights_dev=residual_weights_test_t,
-                                                               log_dev_progress_freq=log_dev_progress_freq,
-                                                               num_epochs=num_epochs, force_retrain=force_retrain,
-                                                               optimizer_opts={"lr": 0.001},
-                                                               early_stopping=early_stopping,
-                                                               save_params=save_params, output_path=output_path,
-                                                               model_tag=model_tag_t, device=device, lookback=lookback,
-                                                               parallelize=parallelize, device_ids=device_ids,
-                                                               batchsize=batchsize, trans_cost=trans_cost,
-                                                               hold_cost=hold_cost, objective=objective)
+                                                              df_train=data_train_t,
+                                                              df_dev=data_test_t,  # No validation is done
+                                                              residual_weights_train=residual_weights_train_t,
+                                                              residual_weights_dev=residual_weights_test_t,
+                                                              log_dev_progress_freq=log_dev_progress_freq,
+                                                              num_epochs=num_epochs, force_retrain=force_retrain,
+                                                              optimizer_opts={"lr": 0.001},
+                                                              early_stopping=early_stopping,
+                                                              save_params=save_params, output_path=output_path,
+                                                              model_tag=model_tag_t, device=device, lookback=lookback,
+                                                              parallelize=parallelize, device_ids=device_ids,
+                                                              batchsize=batchsize, trans_cost=trans_cost,
+                                                              hold_cost=hold_cost, objective=objective)
 
             print("Train completed")
 
@@ -637,3 +641,87 @@ def get_risk_free_rate():
 
     # create dataframe
     return daily
+
+
+""" 
+Run the model
+"""
+
+
+def run_model(factors: list, model_name, preprocess, config, cwd, daily_dates):
+    """
+    Runs the model for all factors in the list
+    Args:
+        factors:
+        model_name:
+        preprocess:
+        config:
+
+    Returns:
+        results_dict:
+
+    """
+
+    results_dict = {}
+    for i in range(len(factors)):
+
+        print(f"Testing factor model: {factors[i]}")
+        start_time = time.time()
+
+        residuals = np.load(factors[i])
+
+        if config["use_residual_weights"]:
+            # ToDo: Skal laves noget så den kan hente dem ordenligt
+            residual_weights = np.load(config["residual_weights"])
+        else:
+            residual_weights = None
+
+        # Define model
+        model = model_name()
+        model_tag = config["model_tag"]
+
+        print("Starting: " + model_tag)
+
+        outdir = os.path.join(cwd, "Outputs", config["model_name_"])
+        if not os.path.exists(outdir):
+            os.makedirs(outdir)
+
+        # Estimate (train) model
+        # ToDo: So should we use data from 1945-1998 for this training func. and then rest for test?
+        rets_train, sharpe_train, ret_train, std_train, turnover_train, short_proportion_train = estimate(
+            Data=residuals, model=model, preprocess=preprocess, residual_weights=residual_weights, save_params=True,
+            force_retrain=config["force_retrain"], parallelize=config["parallelize"], log_dev_progress_freq=10,
+            device=config['device'],
+            device_ids=[0, 1, 2, 3, 4, 5, 6, 7], output_path=outdir, num_epochs=config["num_epochs"], lr=config["lr"],
+            early_stopping=config["early_stopping"], model_tag=model_tag, batchsize=config["batchsize"],
+            length_training=config["length_training"], test_size=config["retrain_freq"], lookback=config["lookback"],
+            trans_cost=config["trans_cost"], hold_cost=config["hold_cost"], objective=config["objective"]
+        )
+
+        # Test model
+        rets_test, sharpe_test, ret_test, std_test, turnover_test, short_proportion_test = test(
+            Data=residuals, daily_dates=daily_dates, model=model, preprocess=preprocess,
+            residual_weights=residual_weights, force_retrain=config["force_retrain"], parallelize=config["parallelize"],
+            log_dev_progress_freq=10, log_plot_freq=149, device=config['device'], device_ids=[0, 1, 2, 3, 4, 5, 6, 7],
+            output_path=outdir, num_epochs=config["num_epochs"], lr=config["lr"],
+            early_stopping=config["early_stopping"],
+            model_tag=model_tag, batchsize=config["batchsize"], retrain_freq=config["retrain_freq"],
+            rolling_retrain=config["rolling_retrain"], length_training=config["length_training"],
+            lookback=config["lookback"], trans_cost=config["trans_cost"], hold_cost=config["hold_cost"],
+            objective=config["objective"]
+        )
+
+        results_dict[model_tag] = {
+            "returns_train": rets_train, "returns_test": rets_test,
+            "sharpe_train": sharpe_train, "sharpe_test": sharpe_test,
+            "ret_train": ret_train, "ret_test": ret_test,
+            "std_train": std_train, "std_test": std_test,
+            "turnover_train": turnover_train, "turnover_test": turnover_test,
+            "short_proportion_train": short_proportion_train, "short_proportion_test": short_proportion_test
+        }
+
+        # Save results
+        with open(f"{cwd}/results/{model_tag}_results.pkl", "wb") as f:
+            pickle.dump(results_dict, f)
+
+        print(f"Time for {str(model_name)} factor model {factors[i]}: {(time.time() - start_time) / 60} minutes")

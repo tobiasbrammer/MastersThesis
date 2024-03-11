@@ -29,3 +29,4 @@ res_pca_path: "factor_outputs/OOSResiduals_PCA_factor5_rollingwindow_60.npy"
 model_tag: "FFT"  # ToDo: What do we want to include? lookback, objective, trans_cost, hold_cost, num_epochs, lr ??
 model_name_: "FFT_FFN"  # For saving in correct directory
 residual_weights: "factor_outputs/OOSResidualsmatrix_PCA_factor5_rollingwindow_60.npy"
+device: "cpu"
