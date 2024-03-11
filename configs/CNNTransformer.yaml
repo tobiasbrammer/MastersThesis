@@ -8,7 +8,6 @@ hidden_units_factor: 2 # multiplicand of last item in `filter_numbers`; determin
 normalization_conv: True # normalize convolutions or not
 use_transformer: True
 use_convolution: True
-hidden_units: [4, 4, 4, 4] # must start with 30
 
 # Data parameters
 preprocess_func: "preprocess_cnn" # name of a function defined in pre_process.py
@@ -29,7 +28,7 @@ objective: "sharpe"
 market_frictions: True # enable or disable
 trans_cost: 0 # cost in bps per txn side per equity, e.g. 0.0005
 hold_cost: 0.0001 # cost in bps for short positions per equity per day, e.g. 0.0001
-parallelize: True
+parallelize: False
 
 # Mine
 res_pca_path: "factor_outputs/OOSResiduals_PCA_factor5_rollingwindow_60.npy"
