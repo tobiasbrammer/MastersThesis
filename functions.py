@@ -25,7 +25,7 @@ Estimate function
 def estimate(Data, model, preprocess, residual_weights=None, log_dev_progress_freq=50,
              num_epochs=100, lr=0.001, batchsize=150, early_stopping=False, save_params=True,
              device=None, output_path=os.path.join(os.getcwd(), "results", "Unknown"), model_tag="Unknown",
-             lookback=30, length_training=1000, test_size=125, parallelize=True, device_ids=[0, 1, 2, 3, 4, 5, 6, 7],
+             lookback=30, length_training=1000, test_size=125, parallelize=True, device_ids=[0],
              trans_cost=0, hold_cost=0, force_retrain=True, objective="sharpe", estimate_start_idx=0):
     # Assets to trade
     assets_to_trade = np.count_nonzero(Data, axis=0) >= lookback
@@ -118,7 +118,7 @@ def train(model, preprocess, df_train, df_dev=None, log_dev_progress=True, log_d
           lr=0.001, batchsize=200, optimizer_opts={"lr": 0.001}, early_stopping=False, early_stopping_max_trials=5,
           lr_decay=0.5, residual_weights_train=None, residual_weights_dev=None, save_params=True, output_path=None,
           model_tag="", lookback=30, trans_cost=0, hold_cost=0, parallelize=True, device=None,
-          device_ids=[0, 1, 2, 3, 4, 5, 6, 7], force_retrain=True, objective='sharpe'):
+          device_ids=[0], force_retrain=True, objective='sharpe'):
     # Preprocess data
     # assets_to_trade chooses assets which have at least `lookback` non-missing observations in the training period
     # this does not induce lookahead bias because idxs_selected is backward-looking and
@@ -172,7 +172,7 @@ def train(model, preprocess, df_train, df_dev=None, log_dev_progress=True, log_d
 
         # Break input data into batches of size 'batchsize' and train over them, for computational efficiency
         for i in range(int((T - lookback) / batchsize) + 1):
-            weights = torch.zeros((min(batchsize * (i + 1), T - lookback) - batchsize * i, N))  # "device" dropped
+            weights = torch.zeros((min(batchsize * (i + 1), T - lookback) - batchsize * i, N), device=device)
 
             # "Logging"
             # print(f"Epoch {epoch} batch {i} weights shape: {weights.shape}")
@@ -180,7 +180,7 @@ def train(model, preprocess, df_train, df_dev=None, log_dev_progress=True, log_d
             idxs_batch_i = idxs_selected[(batchsize * i):min(batchsize * (i + 1), T - lookback), :]
             input_data_batch_i = windows[(batchsize * i):min(batchsize * (i + 1), T - lookback)][idxs_batch_i]
 
-            weights[idxs_batch_i] = model(torch.tensor(input_data_batch_i))  # "device" dropped
+            weights[idxs_batch_i] = model(torch.tensor(input_data_batch_i, device=device))
 
             if residual_weights_train is None:
                 abs_sum = torch.sum(torch.abs(weights), dim=1, keepdim=True)
@@ -207,20 +207,21 @@ def train(model, preprocess, df_train, df_dev=None, log_dev_progress=True, log_d
 
             # noinspection PyArgumentList
             rets_train = torch.sum(
-                weights * torch.tensor(df_train[(lookback + batchsize * i):min(lookback + batchsize * (i + 1), T), :]),
-                axis=1)
+                weights * torch.tensor(df_train[(lookback + batchsize * i):min(lookback + batchsize * (i + 1), T), :],
+                                       device=device), axis=1)
 
             if residual_weights_train is None:
                 # noinspection PyArgumentList
                 rets_train = (rets_train - trans_cost * torch.cat(
-                    (torch.zeros(1), torch.sum(torch.abs(weights[1:] - weights[:-1]), axis=1))) - hold_cost * torch.sum(
-                    torch.abs(torch.min(weights, torch.zeros(1))), axis=1))
+                    (torch.zeros(1, device=device),
+                     torch.sum(torch.abs(weights[1:] - weights[:-1]), axis=1))) - hold_cost * torch.sum(
+                    torch.abs(torch.min(weights, torch.zeros(1, device=device))), axis=1))
             else:
                 # noinspection PyArgumentList ,PyUnboundLocalVariable
                 rets_train = (rets_train - trans_cost * torch.cat(
-                    (torch.zeros(1),
+                    (torch.zeros(1, device=device),
                      torch.sum(torch.abs(weights2[1:] - weights2[:-1]), axis=1))) - hold_cost * torch.sum(
-                    torch.abs(torch.min(weights2, torch.zeros(1))), axis=1))
+                    torch.abs(torch.min(weights2, torch.zeros(1, device=device))), axis=1))
 
             mean_ret = torch.mean(rets_train)
             std = torch.std(rets_train)
@@ -245,11 +246,11 @@ def train(model, preprocess, df_train, df_dev=None, log_dev_progress=True, log_d
                 optimizer.step()  # Update model param given new gradients
 
             if residual_weights_train is None:
-                weights = weights.detach().numpy()
+                weights = weights.detach().cpu().numpy()
             else:
-                weights = weights2.detach().numpy()
+                weights = weights2.detach().cpu().numpy()
 
-            rets_full[(batchsize * i):min(batchsize * (i + 1), T - lookback)] = (rets_train.detach().numpy())
+            rets_full[(batchsize * i):min(batchsize * (i + 1), T - lookback)] = (rets_train.detach().cpu().numpy())
             turnover[(batchsize * i):(min(batchsize * (i + 1), T - lookback)) - 1] = np.sum(
                 np.abs(weights[1:] - weights[:-1]), axis=1)
             # We simply things with this next line, but I'm not sure if why
@@ -363,8 +364,7 @@ def get_returns(model,
                 device=None,
                 paths_checkpoints=[None],
                 parallelize=False,
-                device_ids=[0, 1, 2, 3, 4, 5, 6, 7]):
-
+                device_ids=[0]):
     # Get device
     if device is None:
         device = model.device
@@ -436,14 +436,14 @@ def get_returns(model,
             raise Exception(f"Invalid objective loss {objective}")
 
     return (
-        rets_test.numpy(),
+        rets_test.cpu().numpy(),
         loss,
         sharpe,
-        turnover.numpy(),
-        short_proportion.numpy(),
-        weights.numpy(),
+        turnover.cpu().numpy(),
+        short_proportion.cpu().numpy(),
+        weights.cpu().numpy(),
         assets_to_trade,
-    )  # If there is problems with the return, I might need to do .cpu() on the tensors
+    )
 
 
 """
@@ -455,7 +455,7 @@ def test(Data, daily_dates, model, preprocess, residual_weights=None, log_dev_pr
          num_epochs=100, lr=0.001, batchsize=150, early_stopping=False, save_params=True, device=None,
          output_path=os.path.join(os.getcwd(), "results", "Unknown"), model_tag="Unknown", lookback=30,
          retrain_freq=250, length_training=1000, rolling_retrain=True, parallelize=True,
-         device_ids=[0, 1, 2, 3, 4, 5, 6, 7], trans_cost=0, hold_cost=0, force_retrain=False, objective="sharpe"):
+         device_ids=[0], trans_cost=0, hold_cost=0, force_retrain=False, objective="sharpe"):
     # Choose assets to trade
     assets_to_trade = np.count_nonzero(Data, axis=0) >= lookback
 
@@ -692,7 +692,7 @@ def run_model(factors: list, model_name, preprocess, config, cwd, daily_dates):
             Data=residuals, model=model, preprocess=preprocess, residual_weights=residual_weights, save_params=True,
             force_retrain=config["force_retrain"], parallelize=config["parallelize"], log_dev_progress_freq=10,
             device=config['device'],
-            device_ids=[0, 1, 2, 3, 4, 5, 6, 7], output_path=outdir, num_epochs=config["num_epochs"], lr=config["lr"],
+            device_ids=[0], output_path=outdir, num_epochs=config["num_epochs"], lr=config["lr"],
             early_stopping=config["early_stopping"], model_tag=model_tag, batchsize=config["batchsize"],
             length_training=config["length_training"], test_size=config["retrain_freq"], lookback=config["lookback"],
             trans_cost=config["trans_cost"], hold_cost=config["hold_cost"], objective=config["objective"]
@@ -702,7 +702,7 @@ def run_model(factors: list, model_name, preprocess, config, cwd, daily_dates):
         rets_test, sharpe_test, ret_test, std_test, turnover_test, short_proportion_test = test(
             Data=residuals, daily_dates=daily_dates, model=model, preprocess=preprocess,
             residual_weights=residual_weights, force_retrain=config["force_retrain"], parallelize=config["parallelize"],
-            log_dev_progress_freq=10, log_plot_freq=149, device=config['device'], device_ids=[0, 1, 2, 3, 4, 5, 6, 7],
+            log_dev_progress_freq=10, log_plot_freq=149, device=config['device'], device_ids=[0],
             output_path=outdir, num_epochs=config["num_epochs"], lr=config["lr"],
             early_stopping=config["early_stopping"],
             model_tag=model_tag, batchsize=config["batchsize"], retrain_freq=config["retrain_freq"],

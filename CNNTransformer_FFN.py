@@ -58,7 +58,7 @@ class CNNTransformer_FFN(nn.Module):
         # logdir,
         random_seed=69,
         lookback=30,
-        device="cuda:0",  # other options for device are e.g. "cuda:0"
+        device="cpu",  # other options for device are e.g. "cuda:0"
         normalization_conv=True,
         filter_numbers=[1, 8],
         attention_heads=4,
