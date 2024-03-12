@@ -73,20 +73,15 @@ with open('results/OU_results.pkl', 'rb') as f:
     results_OU = pickle.load(f)
 
 
-# print(f'CNNTransformer: \n Sharpe: {results_CNN['CNNTransfomrer']['sharpe_test']} \n Return: '
-#       f'{results_CNN['CNNTransfomrer']['ret_test']} \n '
-#       f'FFT: \n Sharpe: {results_FFT['FFT']['sharpe_test']} \n Return: {results_FFT['FFT']['ret_test']} \n '
-#       f'OU: \n Sharpe: {results_OU['OU']['sharpe_test']} \n Return: {results_OU['OU']['ret_test']}')
-#
-#
-# def annualized_return(daily_returns):
-#     total_return = sum(daily_returns)
-#     num_years = len(daily_returns) / 252
-#     annualized_return = ((1 + total_return / 100) ** (1 / num_years) - 1) * 100
-#
-#     return annualized_return
-#
-#
-# test = annualized_return(results_CNN['CNNTransfomrer']['returns_test'])
-# test
+print(f'CNNTransformer: \n Sharpe: {results_CNN['CNNTransfomrer']['sharpe_test'] * np.sqrt(252) :.3f} \n '
+      f'Return: {results_CNN['CNNTransfomrer']['ret_test'] * 252 * 100 :.3f}% \n '
+      f'Std: {results_CNN['CNNTransfomrer']['std_test'] * np.sqrt(252) :.3f} \n '
+      f'FFT: \n Sharpe: {results_FFT['FFT']['sharpe_test'] * np.sqrt(252) :.3f} \n '
+      f'Return: {results_FFT['FFT']['ret_test'] * 252 * 100 :.3f}% \n '
+      f'Std: {results_FFT['FFT']['std_test'] * np.sqrt(252) :.3f} \n '
+      f'OU: \n Sharpe: {results_OU['OU']['sharpe_test'] * np.sqrt(252) :.3f} \n '
+      f'Return: {results_OU['OU']['ret_test'] * 252 * 100 :.3f}% \n '
+      f'Std: {results_OU['OU']['std_test'] * np.sqrt(252) :.3f} \n ')
 
+
+plt.plot(daily_dates[(6289-5037):], (1 + results_CNN['CNNTransfomrer']['returns_test']).cumprod())
