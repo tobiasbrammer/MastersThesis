@@ -73,7 +73,8 @@ with open('results/OU_results.pkl', 'rb') as f:
     results_OU = pickle.load(f)
 
 
-print(f'CNNTransformer: \n Sharpe: {results_CNN['CNNTransfomrer']['sharpe_test']} \n Return: {results_CNN['CNNTransfomrer']['ret_test']} \n '
+print(f'CNNTransformer: \n Sharpe: {results_CNN['CNNTransfomrer']['sharpe_test']} \n Return: '
+      f'{results_CNN['CNNTransfomrer']['ret_test']} \n '
       f'FFT: \n Sharpe: {results_FFT['FFT']['sharpe_test']} \n Return: {results_FFT['FFT']['ret_test']} \n '
       f'OU: \n Sharpe: {results_OU['OU']['sharpe_test']} \n Return: {results_OU['OU']['ret_test']}')
 
