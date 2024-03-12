@@ -28,11 +28,11 @@ objective: "sharpe"
 market_frictions: True # enable or disable
 trans_cost: 0 # cost in bps per txn side per equity, e.g. 0.0005
 hold_cost: 0.0001 # cost in bps for short positions per equity per day, e.g. 0.0001
-parallelize: False
+parallelize: True
 
 # Mine
 res_pca_path: "factor_outputs/OOSResiduals_PCA_factor5_rollingwindow_60.npy"
-model_tag: "CNNTransfomrer"  # ToDo: What do we want to include? lookback, objective, trans_cost, hold_cost, num_epochs, lr ??
+model_tag: "CNNTransformer"  # ToDo: What do we want to include? lookback, objective, trans_cost, hold_cost, num_epochs, lr ??
 model_name_: "CNNTransformer_FFN"  # For saving in correct directory
 residual_weights: "factor_outputs/OOSResidualsmatrix_PCA_factor5_rollingwindow_60.npy"
 device: "cpu"

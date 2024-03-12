@@ -61,3 +61,31 @@ factors = [config["res_pca_path"]]  # ['PCA', 'IPCA', 'FamaFrench']
 
 run_model(factors, model_name, preprocess, config, cwd, daily_dates)
 
+
+# Checking results
+with open('results/CNNTransfomrer_results.pkl', 'rb') as f:
+    results_CNN = pickle.load(f)
+
+with open('results/FFT_results.pkl', 'rb') as f:
+    results_FFT = pickle.load(f)
+
+with open('results/OU_results.pkl', 'rb') as f:
+    results_OU = pickle.load(f)
+
+
+print(f'CNNTransformer: \n Sharpe: {results_CNN['CNNTransfomrer']['sharpe_test']} \n Return: {results_CNN['CNNTransfomrer']['ret_test']} \n '
+      f'FFT: \n Sharpe: {results_FFT['FFT']['sharpe_test']} \n Return: {results_FFT['FFT']['ret_test']} \n '
+      f'OU: \n Sharpe: {results_OU['OU']['sharpe_test']} \n Return: {results_OU['OU']['ret_test']}')
+
+
+def annualized_return(daily_returns):
+    total_return = sum(daily_returns)
+    num_years = len(daily_returns) / 252
+    annualized_return = ((1 + total_return / 100) ** (1 / num_years) - 1) * 100
+
+    return annualized_return
+
+
+test = annualized_return(results_CNN['CNNTransfomrer']['returns_test'])
+test
+
