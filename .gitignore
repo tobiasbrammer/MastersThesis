@@ -52,7 +52,6 @@ __pycache__/
 
 # Numpy arrays #
 ######################
-/factor_outputs/
 /residuals-new/
 /factor_data
 /residuals-new
