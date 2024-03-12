@@ -14,18 +14,9 @@ from utils import initialize_logging
 def run_ipca():
     initialize_logging("IPCA")
     logging.info("Loading characteristics data")
-    MonthlyData = pd.read_csv("data/CharAll_na_rm.csv")
+    MonthlyData = pd.read_parquet('factor_data/MonthlyData.parquet')
     logging.info("Loading daily returns")
-    DailyData = pd.read_csv("data/daily-returns-clean.csv")
-    logging.info("Loading risk-free rates")
-    RiskFreeData = pd.read_csv("data/F-F_Research_Data_Factors_daily.CSV")
-    RFs = (
-        RiskFreeData.loc[
-            (RiskFreeData["Date"] > 19630000) & (RiskFreeData["Date"] < 20170000),
-            ["RF"],
-        ].to_numpy()
-        / 100
-    )
+    DailyData = pd.read_parquet('daily_data.parquet')
     logging.info("Preprocessing monthly characteristics data")
     preprocessDailyReturns(MonthlyData, logdir="data")
     logging.info("Preprocessing daily returns")

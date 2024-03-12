@@ -53,3 +53,11 @@ __pycache__/
 # Numpy arrays #
 ######################
 /factor_outputs/
+/residuals-new/
+/factor_data
+/residuals-new
+upload_overleaf/__pycache__/upload.cpython-311.pyc
+upload_overleaf/__pycache__/__init__.cpython-311.pyc
+/residuals-new
+*.pyc
+*.pyc

@@ -363,6 +363,8 @@ lf_daily = (
 print("Saving daily returns to parquet...")
 lf_daily.collect().write_parquet("daily.parquet")
 
+lf_tickers = lf_intraday.select(["ticker"]).distinct().collect().write_csv("tickers.csv")
+
 print("")
 print("")
 print("")

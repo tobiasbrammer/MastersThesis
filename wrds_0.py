@@ -1,5 +1,5 @@
 import pandas as pd
-import wrds
+import wrds_function
 
 tickers = pd.read_parquet('daily.parquet')['ticker'].unique()
 
