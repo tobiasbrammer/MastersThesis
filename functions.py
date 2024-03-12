@@ -377,7 +377,6 @@ def get_returns(model,
     T, N = df_test.shape
     windows, idxs_selected = preprocess(df_test, lookback)
 
-    rets_test = torch.zeros(T - lookback)
     model.eval()
 
     with torch.no_grad():
