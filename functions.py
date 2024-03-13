@@ -630,9 +630,12 @@ def de_annualize(annual_rate, periods=365):
     return (1 + annual_rate) ** (1 / periods) - 1
 
 
-def get_risk_free_rate():
+def get_risk_free_rate(
+        start_date="1998-12-31",
+        end_date="2024-01-01",
+):
     # download 3-month us treasury bills rates
-    annualized = yf.download("^IRX", start="1998-12-31", end="2024-01-01")["Adj Close"]
+    annualized = yf.download("^IRX", start=start_date, end=end_date)["Adj Close"]
 
     # de-annualize
     daily = annualized.apply(de_annualize)

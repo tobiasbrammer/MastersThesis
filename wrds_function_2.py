@@ -1,0 +1,477 @@
+# Get WRDS data for Instrumented PCA
+def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
+    from pandas.tseries.offsets import MonthEnd
+    import pandas as pd
+    import numpy as np
+    from sqlalchemy import create_engine
+
+    pd.set_option('future.no_silent_downcasting', True)
+
+    connection_string = (
+        "postgresql+psycopg2://"
+        f"tobiasbrammer:naqgUf-bantas-1ruwby"
+        "@wrds-pgdata.wharton.upenn.edu:9737/wrds"
+    )
+
+    wrds = create_engine(connection_string, pool_pre_ping=True)
+
+    def get_daily_crsp_data(wrds, start_date, end_date):
+        # ToDo: Not finished.
+        from functions import get_risk_free_rate
+        crsp_monthly = get_monthly_crsp_data(wrds, start_date, end_date)
+        rf = get_risk_free_rate(start_date, end_date)
+        rf.rename(columns={'Adj Close': 'rf'}, inplace=True)
+
+        permnos = list(crsp_monthly["permno"].unique().astype(str))
+
+        batch_size = 500
+        batches = np.ceil(len(permnos) / batch_size).astype(int)
+
+        for j in range(1, batches + 1):
+
+            permno_batch = permnos[
+                           ((j - 1) * batch_size):(min(j * batch_size, len(permnos)))
+                           ]
+
+            permno_batch_formatted = (
+                ", ".join(f"'{permno}'" for permno in permno_batch)
+            )
+            permno_string = f"({permno_batch_formatted})"
+
+            crsp_daily_sub_query = (
+                "SELECT permno, dlycaldt AS date, dlyret AS ret "
+                "FROM crsp.dsf_v2 "
+                f"WHERE permno IN {permno_string} "
+                f"AND dlycaldt BETWEEN '{start_date}' AND '{end_date}'"
+            )
+
+            crsp_daily_sub = (pd.read_sql_query(
+                sql=crsp_daily_sub_query,
+                con=wrds,
+                dtype={"permno": int},
+                parse_dates={"date"}
+            )
+                              .dropna()
+                              )
+
+            if not crsp_daily_sub.empty:
+
+                crsp_daily_sub = (crsp_daily_sub
+                                  .assign(
+                    month=lambda x:
+                    x["date"].dt.to_period("M").dt.to_timestamp()
+                )
+                                  .merge(rf[["date", "rf"]],
+                                         on="date", how="left")
+                                  .assign(
+                    ret_excess=lambda x:
+                    ((x["ret"] - x["rf"]).clip(lower=-1))
+                )
+                                  .get(["permno", "date", "month", "ret_excess"])
+                                  )
+
+                if j == 1:
+                    if_exists_string = "replace"
+                else:
+                    if_exists_string = "append"
+
+                crsp_daily_sub.to_sql(
+                    name="crsp_daily",
+                    con=tidy_finance,
+                    if_exists=if_exists_string,
+                    index=False
+                )
+
+            print(f"Batch {j} out of {batches} done ({(j / batches) * 100:.2f}%)\n")
+
+    def get_monthly_crsp_data(wrds, start_date, end_date):
+        import yfinance as yf
+
+        crsp_monthly_query = (f"""
+        SELECT msf.ticker, msf.permno, msf.mthcaldt AS date, 
+            date_trunc('month', msf.mthcaldt)::date AS month, 
+            msf.mthret AS ret, msf.shrout, msf.mthprc AS altprc, 
+            msf.primaryexch, msf.siccd 
+            FROM crsp.msf_v2 AS msf 
+            LEFT JOIN crsp.stksecurityinfohist AS ssih 
+            ON msf.permno = ssih.permno AND 
+            ssih.secinfostartdt <= msf.mthcaldt AND 
+            msf.mthcaldt <= ssih.secinfoenddt 
+            WHERE msf.mthcaldt BETWEEN '{start_date}' AND '{end_date}' 
+            AND ssih.sharetype = 'NS' 
+            AND ssih.securitytype = 'EQTY' 
+            AND ssih.securitysubtype = 'COM' 
+            AND ssih.usincflg = 'Y' 
+            AND ssih.issuertype in ('ACOR', 'CORP')
+        """
+                              )
+        crsp_monthly = (pd.read_sql_query(
+            sql=crsp_monthly_query,
+            con=wrds,
+            dtype={"permno": int, "siccd": int},
+            parse_dates={"date", "month"})
+                        .assign(shrout=lambda x: x["shrout"] * 1000)
+                        )
+
+        crsp_monthly = (crsp_monthly
+                        .assign(mktcap=lambda x: x["shrout"] * x["altprc"] / 1000000)
+                        .assign(mktcap=lambda x: x["mktcap"].replace(0, np.nan))
+                        )
+
+        crsp_monthly['jdate'] = crsp_monthly['date'] + MonthEnd(0)
+
+        mktcap_lag = (crsp_monthly
+                      .assign(
+            month=lambda x: x["month"] + pd.DateOffset(months=1),
+            mktcap_lag=lambda x: x["mktcap"]
+        )
+                      .get(["permno", "month", "mktcap_lag"])
+                      )
+
+        crsp_monthly = (crsp_monthly
+                        .merge(mktcap_lag, how="left", on=["permno", "month"])
+                        )
+
+        def assign_exchange(primaryexch):
+            if primaryexch == "N":
+                return "NYSE"
+            elif primaryexch == "A":
+                return "AMEX"
+            elif primaryexch == "Q":
+                return "NASDAQ"
+            else:
+                return "Other"
+
+        crsp_monthly["exchange"] = (crsp_monthly["primaryexch"]
+                                    .apply(assign_exchange)
+                                    )
+
+        def assign_industry(siccd):
+            if 1 <= siccd <= 999:
+                return "Agriculture"
+            elif 1000 <= siccd <= 1499:
+                return "Mining"
+            elif 1500 <= siccd <= 1799:
+                return "Construction"
+            elif 2000 <= siccd <= 3999:
+                return "Manufacturing"
+            elif 4000 <= siccd <= 4899:
+                return "Transportation"
+            elif 4900 <= siccd <= 4999:
+                return "Utilities"
+            elif 5000 <= siccd <= 5199:
+                return "Wholesale"
+            elif 5200 <= siccd <= 5999:
+                return "Retail"
+            elif 6000 <= siccd <= 6799:
+                return "Finance"
+            elif 7000 <= siccd <= 8999:
+                return "Services"
+            elif 9000 <= siccd <= 9999:
+                return "Public"
+            else:
+                return "Missing"
+
+        crsp_monthly["industry"] = (crsp_monthly["siccd"]
+                                    .apply(assign_industry)
+                                    )
+
+        rf = yf.download("^IRX", start=start_date, end=end_date)["Adj Close"]
+        rf = pd.DataFrame(rf.apply(lambda x: (1 + x) ** (1 / 12) - 1))
+        # Set Date as datetime
+        rf.index = pd.to_datetime(rf.index)
+        # Add a column with the end of month date
+        rf['jdate'] = rf.index + MonthEnd(0)
+        # Rename Adj Close to rf
+        rf.rename(columns={'Adj Close': 'rf'}, inplace=True)
+        # Keep the last observation of each month
+        rf = rf.groupby('jdate').last()
+
+        crsp_monthly = (crsp_monthly
+                        .merge(rf, how="left", on="jdate")
+                        .assign(ret_excess=lambda x: x["ret"] - x["rf"])
+                        .assign(ret_excess=lambda x: x["ret_excess"].clip(lower=-1))
+                        .drop(columns=["rf"])
+                        )
+
+        return crsp_monthly
+
+    def get_comp_data(wrds, start_date):
+        compustat_query = (f"""
+            SELECT gvkey, datadate, seq, ceq, at, lt, txditc, txdb, itcb,  pstkrv, 
+            pstkl, pstk, capx, oancf, sale, cogs, xint, xsga 
+            FROM comp.funda 
+            WHERE indfmt = 'INDL' 
+            AND datafmt = 'STD' 
+            AND consol = 'C' 
+            AND datadate BETWEEN '{start_date}' AND '{end_date}'
+            """
+                           )
+
+        compustat = pd.read_sql_query(
+            sql=compustat_query,
+            con=wrds,
+            dtype={"gvkey": str},
+            parse_dates={"datadate"}
+        )
+
+        compustat = (compustat
+        .assign(
+            be=lambda x:
+            (x["seq"].combine_first(x["ceq"] + x["pstk"])
+             .combine_first(x["at"] - x["lt"]) +
+             x["txditc"].combine_first(x["txdb"] + x["itcb"]).fillna(0) -
+             x["pstkrv"].combine_first(x["pstkl"])
+             .combine_first(x["pstk"]).fillna(0))
+        )
+        .assign(
+            be=lambda x: x["be"].apply(lambda y: np.nan if y <= 0 else y)
+        )
+        .assign(
+            op=lambda x:
+            ((x["sale"] - x["cogs"].fillna(0) -
+              x["xsga"].fillna(0) - x["xint"].fillna(0)) / x["be"])
+        )
+        )
+        # We keep only the last available information for each firm-year group.
+        compustat = (compustat
+                     .assign(year=lambda x: pd.DatetimeIndex(x["datadate"]).year)
+                     .sort_values("datadate")
+                     .groupby(["gvkey", "year"])
+                     .tail(1)
+                     .reset_index()
+                     )
+        # We also compute the investment ratio (inv) according to Kenneth French’s variable definitions as the change in total assets from one fiscal year to another.
+        compustat_lag = (compustat
+                         .get(["gvkey", "year", "at"])
+                         .assign(year=lambda x: x["year"] + 1)
+                         .rename(columns={"at": "at_lag"})
+                         )
+
+        compustat = (compustat
+                     .merge(compustat_lag, how="left", on=["gvkey", "year"])
+                     .assign(inv=lambda x: x["at"] / x["at_lag"] - 1)
+                     .assign(inv=lambda x: np.where(x["at_lag"] <= 0, np.nan, x["inv"]))
+                     )
+
+        return compustat
+
+    def get_ccm_data(wrds):
+        ccmxpf_linktable_query = ("""
+            SELECT lpermno AS permno, gvkey, linkdt, 
+            COALESCE(linkenddt, CURRENT_DATE) AS linkenddt 
+            FROM crsp.ccmxpf_linktable 
+            WHERE linktype IN ('LU', 'LC') 
+            AND linkprim IN ('P', 'C') 
+            AND usedflag = 1
+        """
+        )
+
+        ccm = pd.read_sql_query(
+            sql=ccmxpf_linktable_query,
+            con=wrds,
+            dtype={"permno": int, "gvkey": str},
+            parse_dates={"linkdt", "linkenddt"}
+        )
+        return ccm
+
+    crsp_monthly = get_monthly_crsp_data(wrds, start_date, end_date)
+
+    compustat = get_comp_data(wrds, start_date)
+
+    ccmxpf_linktable = get_ccm_data(wrds)
+
+    ccm_links = (crsp_monthly
+                 .merge(ccmxpf_linktable, how="inner", on="permno")
+                 .query("~gvkey.isnull() & (date >= linkdt) & (date <= linkenddt)")
+                 .get(["permno", "gvkey", "date"])
+                 )
+
+    crsp_monthly = (crsp_monthly
+                    .merge(ccm_links, how="left", on=["permno", "date"])
+                    )
+
+    comp = (crsp_monthly
+     .assign(year=lambda x: pd.DatetimeIndex(x["month"]).year)
+     .merge(compustat, how="left", on=["gvkey", "year"])
+     )
+
+
+    # Use Fama French 1993 timing convention, and use balance-sheet data from the fiscal year ending in year t − 1 for returns from July of year t to June of year t + 1.
+    comp['jdate'] = comp['datadate'] + MonthEnd(0) + pd.DateOffset(months=6)  # Fama French 1993 timing convention
+
+    comp['year'] = comp['jdate'].dt.year
+
+    # create preferrerd stock:
+    # 1st choice: Preferred stock - Redemption Value
+    # 2nd choice: Preferred stock - Liquidating Value
+    # 3rd choice: Preferred stock - Carrying Value, Stock (Capital) - Total
+    comp['pref'] = np.where(comp['pstkrq'].isnull(), comp['pstkr'], comp['pstkr'])
+    comp['pref'] = np.where(comp['pref'].isnull(), comp['pstk'], comp['pref'])
+    comp['pref'] = np.where(comp['pref'].isnull(), 0, comp['pref'])
+
+    # fill in missing values for deferred taxes and investment tax credit
+    comp['txdb'] = comp['txdb'].fillna(0)
+    comp['itcc'] = comp['itcc'].fillna(0)
+
+    # create book equity
+    # Daniel and Titman (JF 1997):
+    # BE = stockholders' equity + deferred taxes + investment tax credit - Preferred Stock
+
+    comp['be'] = comp['seq'] + comp['txdb'] + comp['itcc'] - comp['pref']
+
+
+    #########################
+    # Momentum Factor       #
+    #########################
+
+    # Create (12,1) Momentum Factor with at least 6 months of returns
+
+    comp_tmp = comp.copy()
+
+    _tmp_crsp = comp_tmp[['permno', 'date', 'ret', 'me', 'exchcd']].sort_values(['permno', 'date']).set_index('date')
+    # replace missing return with 0
+    _tmp_crsp['ret'] = _tmp_crsp['ret'].fillna(0)
+    _tmp_crsp['logret'] = np.log(1 + _tmp_crsp['ret'])
+    _tmp_cumret = _tmp_crsp.groupby(['permno'])['logret'].rolling(12, min_periods=7).sum()
+    _tmp_cumret = _tmp_cumret.reset_index()
+    _tmp_cumret['cumret'] = np.exp(_tmp_cumret['logret']) - 1
+
+    sizemom = pd.merge(_tmp_crsp.reset_index(), _tmp_cumret[['permno', 'date', 'cumret']], how='left',
+                       on=['permno', 'date'])
+    del _tmp_crsp, _tmp_cumret
+    sizemom['mom'] = sizemom.groupby('permno')['cumret'].shift(1)
+    sizemom = sizemom[sizemom['date'].dt.month == 6].drop(['logret', 'cumret'], axis=1).rename(columns={'me': 'size'})
+
+    #########################
+    # CAPM Beta       #
+    #########################
+    # Calculate CAPM Beta
+    # Product of correlations between the excess return of stock i and the market excess return and
+    # the ratio of volatilities. We calculate volatilities from the standard deviations of daily log excess returns
+    # over a one-year horizon requiring at least 120 observations.
+    # We estimate correlations using overlapping three-day log excess returns over a five-year period requiring at
+    # least 750 non-missing observations
+
+    comp['logret'] = np.log(1 + comp['ret'])
+
+    # Calculate Volatility
+    comp['vol'] = comp.groupby('permno')['logret'].rolling(252, min_periods=120).std().reset_index()['logret']
+
+    # Calculate Correlation
+    comp['laglogret'] = comp.groupby('permno')['logret'].shift(1)
+    comp['laglogret2'] = comp.groupby('permno')['logret'].shift(2)
+    comp['laglogret3'] = comp.groupby('permno')['logret'].shift(3)
+
+    comp['laglogret'] = comp['laglogret'].fillna(0)
+    comp['laglogret2'] = comp['laglogret2'].fillna(0)
+    comp['laglogret3'] = comp['laglogret3'].fillna(0)
+
+    #########################
+    # NYSE Size Breakpoint  #
+    #########################
+
+    # Get Size Breakpoints for NYSE firms
+    sizemom = sizemom.sort_values(['date', 'permno']).drop_duplicates()
+    nyse = sizemom[sizemom['exchcd'] == 1]
+    nyse_break = nyse.groupby(['date'])['size'].describe(percentiles=[.2, .4, .6, .8]).reset_index()
+    nyse_break = nyse_break[['date', '20%', '40%', '60%', '80%']] \
+        .rename(columns={'20%': 'dec20', '40%': 'dec40', '60%': 'dec60', '80%': 'dec80'})
+
+    sizemom = pd.merge(sizemom, nyse_break, how='left', on='date')
+    del nyse, nyse_break
+
+    # Add NYSE Size Breakpoints to the Data
+    def size_group(row):
+        if 0 <= row['size'] < row['dec20']:
+            value = 1
+        elif row['size'] < row['dec40']:
+            value = 2
+        elif row['size'] < row['dec60']:
+            value = 3
+        elif row['size'] < row['dec80']:
+            value = 4
+        elif row['size'] >= row['dec80']:
+            value = 5
+        else:
+            value = np.nan
+        return value
+
+    sizemom['group'] = sizemom.apply(size_group, axis=1)
+    sizemom['year'] = sizemom['date'].dt.year - 1
+    sizemom = sizemom[['permno', 'year', 'mom', 'group', 'size', 'ret']]
+    comp = pd.merge(comp5, sizemom, how='inner', on=['permno', 'year'])
+
+    del comp5, sizemom, crsp_m
+
+    db.close()
+
+    return comp
+
+
+def process_compustat(save=False):
+    import pandas as pd
+    import numpy as np
+
+    df = get_wrds()
+
+    df = df.fillna(0)
+    fundamentals = pd.DataFrame()
+    fundamentals['ticker'] = df['ticker']
+    fundamentals['date'] = df['jdate']
+    fundamentals['noa'] = ((df['atq'] - df['cheq'] - df['ivaoq']) - (
+            df['atq'] - df['dlcq'] - df['dlttq'] - df['mibq'] - df['pstkq'] - df['ceqq']))
+    fundamentals['prc'] = df['p']
+    fundamentals['shrout'] = df['tso']
+    fundamentals['cap'] = df['prc'] * df['shrout']
+    # fundamentals['lme'] = df['lme'] # Not available yet...
+    fundamentals['a2me'] = df['atq'] / (df['tso'] * df['p'])
+    fundamentals['ac'] = (df['actq'] - df['cheq'] - df['lctq'] - df['txpq']) / (
+            df['be'] / (fundamentals['prc'] * fundamentals['prc']))
+    fundamentals['at'] = df['atq']
+    fundamentals['ato'] = df['saleq'] / fundamentals['noa']
+    fundamentals['beme'] = df['be'] / (fundamentals['prc'] * fundamentals['shrout'])
+    # fundamentals['beta'] = df['beta'] # Not available yet...
+    fundamentals['c'] = df['cheq'] / df['atq']
+    fundamentals['cf'] = (df['niq'] + df['dpq']) / df['atq']
+    fundamentals['cf2p'] = (df['ibq'] + df['dpq'] + df['txdbq']) / (fundamentals['prc'] * fundamentals['prc'])
+    fundamentals['cto'] = df['saleq'] / df['atq']
+    fundamentals['d2a'] = df['dpq'] / df['atq']
+    # fundamentals['d2p'] = df['divamty'] / df['lme']
+    fundamentals['dpi2a'] = (df['ppegtq'] + df['invtq']) / df['atq']
+    fundamentals['e2p'] = df['niq'] / fundamentals['prc']
+    fundamentals['fc2y'] = (df['xsgaq'] + df['xrdq']) / df['saleq']
+    # fundamentals['IdioVol']  Standard deviation of the residuals from aregression of excess returns on the Fama and French three-factor model. Not available yet...
+    # fundamentals['investment'] = (df['atq'].shift(8) - df['atq'].shift(4)) / df['atq'].shift(8)
+    fundamentals['lev'] = (df['dlttq'] + df['dlcq']) / (df['dlttq'] + df['dlcq'] + df['seqq'])
+    fundamentals['lme'] = df['me'].shift(1)
+    # fundamentals['lt_rev'] "Cumulative return from 60 months before the return prediction to 13 months before."
+    fundamentals['lturnover'] = df['vol'].shift(1)
+    # fundamentals['lturnover'] Coefficient of the market excess return from the regression on excess returns in the past 60 months (24 months minimum).
+    fundamentals['ni'] = np.log(1 + df['cshoq'].shift(4) * df['ajexq'].shift(4)) - np.log(
+        1 + df['cshoq'].shift(8) * df['ajexq'].shift(8))
+    fundamentals['oa'] = (df['actq'] - df['cheq'] - df['lctq'] - df['txpq'] - df['dpq']) / df['atq'].shift(4)
+    fundamentals['ol'] = (df['ltq'] - df['dlcq'] - df['dlttq']) / df['atq'].shift(4)
+    fundamentals['op'] = (df['saleq'] - df['cogsq'] - df['xsgaq'] - df['xintq'] - df['txditcq']) / df['atq'].shift(4)
+    fundamentals['pcm'] = (df['saleq'] - df['cogsq']) / df['saleq']
+    fundamentals['pm'] = df['oiadpq'] / df['saleq']
+    fundamentals['prof'] = (df['saleq'] - df['cogsq']) / df['be']
+    fundamentals['q'] = (df['atq'] + df['me'] - df['ceqq'] - df['txdbq']) / df['atq']
+    # fundamentals['r2_1'] = df['laglogret']
+    fundamentals['r12_2'] = df['mom']
+    fundamentals['rna'] = df['oiadpq'] / fundamentals['noa']
+    fundamentals['roa'] = df['ibq'] / df['atq']
+    fundamentals['roe'] = df['ibq'] / df['be']
+    fundamentals['s2p'] = df['saleq'] / (fundamentals['prc'] * fundamentals['shrout'])
+    fundamentals['sga2s'] = df['xsgaq'] / df['saleq']
+
+    fundamentals.fillna(0, inplace=True)
+
+    if save:
+        import os
+        if not os.path.exists('factor_data'):
+            os.makedirs('factor_data')
+        fundamentals.to_parquet('factor_data/MonthlyData.parquet')
+        return
+
+    return fundamentals

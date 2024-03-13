@@ -122,7 +122,10 @@ IPCA
 """
 
 def run_ipca():
+    import wrds_function
     print("Loading characteristics data")
+    if not os.path.exists("factor_data/MonthlyData.parquet"):
+        wrds_function.process_compustat(save=True)
     MonthlyData = pd.read_parquet('factor_data/MonthlyData.parquet')
     print("Loading daily returns")
     print("Preprocessing monthly characteristics data")
