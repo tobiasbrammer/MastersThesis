@@ -63,7 +63,7 @@ run_model(factors, model_name, preprocess, config, cwd, daily_dates)
 
 
 # Checking results
-with open('results/CNNTransfomrer_results.pkl', 'rb') as f:
+with open('results/CNNTransformer_results.pkl', 'rb') as f:
     results_CNN = pickle.load(f)
 
 with open('results/FFT_results.pkl', 'rb') as f:
@@ -73,9 +73,9 @@ with open('results/OU_results.pkl', 'rb') as f:
     results_OU = pickle.load(f)
 
 
-print(f'CNNTransformer: \n Sharpe: {results_CNN['CNNTransfomrer']['sharpe_test'] * np.sqrt(252) :.3f} \n '
-      f'Return: {results_CNN['CNNTransfomrer']['ret_test'] * 252 * 100 :.3f}% \n '
-      f'Std: {results_CNN['CNNTransfomrer']['std_test'] * np.sqrt(252) :.3f} \n '
+print(f'CNNTransformer: \n Sharpe: {results_CNN['CNNTransformer']['sharpe_test'] * np.sqrt(252) :.3f} \n '
+      f'Return: {results_CNN['CNNTransformer']['ret_test'] * 252 * 100 :.3f}% \n '
+      f'Std: {results_CNN['CNNTransformer']['std_test'] * np.sqrt(252) :.3f} \n '
       f'FFT: \n Sharpe: {results_FFT['FFT']['sharpe_test'] * np.sqrt(252) :.3f} \n '
       f'Return: {results_FFT['FFT']['ret_test'] * 252 * 100 :.3f}% \n '
       f'Std: {results_FFT['FFT']['std_test'] * np.sqrt(252) :.3f} \n '
