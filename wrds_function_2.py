@@ -92,7 +92,7 @@ def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
         SELECT msf.ticker, msf.permno, msf.mthcaldt AS date, 
             date_trunc('month', msf.mthcaldt)::date AS month, 
             msf.mthret AS ret, msf.shrout, msf.mthprc AS altprc, 
-            msf.primaryexch, msf.siccd 
+            msf.primaryexch, msf.siccd, msf.mthvol AS vol
             FROM crsp.msf_v2 AS msf 
             LEFT JOIN crsp.stksecurityinfohist AS ssih 
             ON msf.permno = ssih.permno AND 
@@ -211,10 +211,8 @@ def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
             itcb, 
             pstkrv, 
             pstkl, 
-            pstk, 
             capx, 
             oancf, 
-            sale, 
             cogs, 
             xint, 
             xsga, 
@@ -231,7 +229,11 @@ def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
             sale, 
             dvt, 
             wcapch, 
-            ppegt
+            ppegt,
+            ni,
+            ib,
+            xrd,
+            oiadp
             FROM comp.funda
             WHERE indfmt = 'INDL' 
             AND datafmt = 'STD' 
@@ -313,6 +315,7 @@ def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
 
     ccmxpf_linktable = get_ccm_data(wrds)
 
+
     ccm_links = (crsp_monthly
                  .merge(ccmxpf_linktable, how="inner", on="permno")
                  .query("~gvkey.isnull() & (date >= linkdt) & (date <= linkenddt)")
@@ -352,7 +355,7 @@ def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
                        on=['permno', 'date'])
     del _tmp_crsp, _tmp_cumret
     sizemom['mom'] = sizemom.groupby('permno')['cumret'].shift(1)
-    sizemom = sizemom[sizemom['date'].dt.month == 6].drop(['logret', 'cumret'], axis=1).rename(columns={'me': 'size'})
+    sizemom = sizemom[sizemom['date'].dt.month == 6].drop(['logret', 'cumret'], axis=1).rename(columns={'mktcap': 'size'})
 
     #########################
     # CAPM Beta       #
@@ -367,7 +370,7 @@ def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
     comp['logret'] = np.log(1 + comp['ret'])
 
     # Calculate Volatility
-    comp['vol'] = comp.groupby('permno')['logret'].rolling(252, min_periods=120).std().reset_index()['logret']
+    comp['volatility'] = comp.groupby('permno')['logret'].rolling(252, min_periods=120).std().reset_index()['logret']
 
     # Calculate Correlation
     comp['laglogret'] = comp.groupby('permno')['logret'].shift(1)
@@ -385,7 +388,7 @@ def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
     # Get Size Breakpoints for NYSE firms
     sizemom = sizemom.sort_values(['date', 'permno']).drop_duplicates()
     nyse = sizemom[sizemom['exchange'] == 'NYSE']
-    nyse_break = nyse.groupby(['date'])['mktcap'].describe(percentiles=[.2, .4, .6, .8]).reset_index()
+    nyse_break = nyse.groupby(['date'])['size'].describe(percentiles=[.2, .4, .6, .8]).reset_index()
     nyse_break = nyse_break[['date', '20%', '40%', '60%', '80%']] \
         .rename(columns={'20%': 'dec20', '40%': 'dec40', '60%': 'dec60', '80%': 'dec80'})
 
@@ -394,15 +397,15 @@ def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
 
     # Add NYSE Size Breakpoints to the Data
     def size_group(row):
-        if 0 <= row['mktcap'] < row['dec20']:
+        if 0 <= row['size'] < row['dec20']:
             value = 1
-        elif row['mktcap'] < row['dec40']:
+        elif row['size'] < row['dec40']:
             value = 2
-        elif row['mktcap'] < row['dec60']:
+        elif row['size'] < row['dec60']:
             value = 3
-        elif row['mktcap'] < row['dec80']:
+        elif row['size'] < row['dec80']:
             value = 4
-        elif row['mktcap'] >= row['dec80']:
+        elif row['size'] >= row['dec80']:
             value = 5
         else:
             value = np.nan
@@ -415,8 +418,10 @@ def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
 
     del sizemom
 
+    # Save in ipca_test_data/comp.parquet
+    comp.to_parquet('ipca_test_data/comp.parquet')
 
-    return comp
+    return
 
 
 def process_compustat(save=False):
@@ -429,51 +434,64 @@ def process_compustat(save=False):
     fundamentals = pd.DataFrame()
     fundamentals['ticker'] = df['ticker']
     fundamentals['date'] = df['jdate']
+    fundamentals['year'] = df['jdate'].dt.year
     fundamentals['noa'] = ((df['at'] - df['che'] - df['ivao']) - (
             df['at'] - df['dlc'] - df['dltt'] - df['mib'] - df['pstk'] - df['ceq']))
-    fundamentals['prc'] = df['p']
-    fundamentals['shrout'] = df['tso']
-    fundamentals['cap'] = df['prc'] * df['shrout']
+    fundamentals['prc'] = df['altprc']
+    fundamentals['shrout'] = df['shrout']
+    fundamentals['cap'] = fundamentals['prc'] * fundamentals['shrout']
+    fundamentals['me'] = fundamentals['cap']
     # fundamentals['lme'] = df['lme'] # Not available yet...
-    fundamentals['a2me'] = df['atq'] / (df['tso'] * df['p'])
-    fundamentals['ac'] = (df['actq'] - df['cheq'] - df['lctq'] - df['txpq']) / (
+    fundamentals['a2me'] = df['at'] / (fundamentals['shrout'] * fundamentals['prc'])
+    fundamentals['ac'] = (df['act'] - df['che'] - df['lct'] - df['txp']) / (
             df['be'] / (fundamentals['prc'] * fundamentals['prc']))
-    fundamentals['at'] = df['atq']
-    fundamentals['ato'] = df['saleq'] / fundamentals['noa']
+    fundamentals['at'] = df['at']
+    fundamentals['ato'] = df['sale'] / fundamentals['noa']
     fundamentals['beme'] = df['be'] / (fundamentals['prc'] * fundamentals['shrout'])
     # fundamentals['beta'] = df['beta'] # Not available yet...
-    fundamentals['c'] = df['cheq'] / df['atq']
-    fundamentals['cf'] = (df['niq'] + df['dpq']) / df['atq']
-    fundamentals['cf2p'] = (df['ibq'] + df['dpq'] + df['txdbq']) / (fundamentals['prc'] * fundamentals['prc'])
-    fundamentals['cto'] = df['saleq'] / df['atq']
-    fundamentals['d2a'] = df['dpq'] / df['atq']
+    fundamentals['c'] = df['che'] / df['at']
+    fundamentals['cf'] = (df['ni'] + df['dp']) / df['at']
+    fundamentals['cf2p'] = (df['ib'] + df['dp'] + df['txdb']) / (fundamentals['prc'] * fundamentals['shrout'])
+    fundamentals['cto'] = df['sale'] / df['at']
+    fundamentals['d2a'] = df['dp'] / df['at']
     # fundamentals['d2p'] = df['divamty'] / df['lme']
-    fundamentals['dpi2a'] = (df['ppegtq'] + df['invtq']) / df['atq']
-    fundamentals['e2p'] = df['niq'] / fundamentals['prc']
-    fundamentals['fc2y'] = (df['xsgaq'] + df['xrdq']) / df['saleq']
+    fundamentals['dpi2a'] = (df['ppegt'] + df['inv']) / df['at']
+    fundamentals['e2p'] = df['ni'] / fundamentals['prc']
+    fundamentals['fc2y'] = (df['xsga'] + df['xrd']) / df['sale']
     # fundamentals['IdioVol']  Standard deviation of the residuals from aregression of excess returns on the Fama and French three-factor model. Not available yet...
-    # fundamentals['investment'] = (df['atq'].shift(8) - df['atq'].shift(4)) / df['atq'].shift(8)
-    fundamentals['lev'] = (df['dlttq'] + df['dlcq']) / (df['dlttq'] + df['dlcq'] + df['seqq'])
-    fundamentals['lme'] = df['me'].shift(1)
+    fundamentals['lev'] = (df['dltt'] + df['dlc']) / (df['dltt'] + df['dlc'] + df['seq'])
     # fundamentals['lt_rev'] "Cumulative return from 60 months before the return prediction to 13 months before."
-    fundamentals['lturnover'] = df['vol'].shift(1)
     # fundamentals['lturnover'] Coefficient of the market excess return from the regression on excess returns in the past 60 months (24 months minimum).
-    fundamentals['ni'] = np.log(1 + df['cshoq'].shift(4) * df['ajexq'].shift(4)) - np.log(
-        1 + df['cshoq'].shift(8) * df['ajexq'].shift(8))
-    fundamentals['oa'] = (df['actq'] - df['cheq'] - df['lctq'] - df['txpq'] - df['dpq']) / df['atq'].shift(4)
-    fundamentals['ol'] = (df['ltq'] - df['dlcq'] - df['dlttq']) / df['atq'].shift(4)
-    fundamentals['op'] = (df['saleq'] - df['cogsq'] - df['xsgaq'] - df['xintq'] - df['txditcq']) / df['atq'].shift(4)
-    fundamentals['pcm'] = (df['saleq'] - df['cogsq']) / df['saleq']
-    fundamentals['pm'] = df['oiadpq'] / df['saleq']
-    fundamentals['prof'] = (df['saleq'] - df['cogsq']) / df['be']
-    fundamentals['q'] = (df['atq'] + df['me'] - df['ceqq'] - df['txdbq']) / df['atq']
+    fundamentals['pcm'] = (df['sale'] - df['cogs']) / df['sale']
+    fundamentals['pm'] = df['oiadp'] / df['sale']
+    fundamentals['prof'] = (df['sale'] - df['cogs']) / df['be']
+    fundamentals['q'] = (df['at'] + fundamentals['cap'] - df['ceq'] - df['txdb']) / df['at']
     # fundamentals['r2_1'] = df['laglogret']
     fundamentals['r12_2'] = df['mom']
-    fundamentals['rna'] = df['oiadpq'] / fundamentals['noa']
-    fundamentals['roa'] = df['ibq'] / df['atq']
-    fundamentals['roe'] = df['ibq'] / df['be']
-    fundamentals['s2p'] = df['saleq'] / (fundamentals['prc'] * fundamentals['shrout'])
-    fundamentals['sga2s'] = df['xsgaq'] / df['saleq']
+    fundamentals['rna'] = df['oiadp'] / fundamentals['noa']
+    fundamentals['roa'] = df['ib'] / df['at']
+    fundamentals['roe'] = df['ib'] / df['be']
+    fundamentals['s2p'] = df['sale'] / (fundamentals['prc'] * fundamentals['shrout'])
+    fundamentals['sga2s'] = df['xsga'] / df['sale']
+    fundamentals['csho'] = df['csho']
+    fundamentals['ajex'] = df['ajex']
+    fundamentals_lags = (fundamentals[["ticker", "year", "at", "cap", "csho", "ajex"]]
+                     .assign(year=lambda x: x["year"] + 1)
+                     .rename(columns={"at": "at_lag",
+                                      "cap": "lme",
+                                      "csho": "csho_lag",
+                                      "ajex": "ajex_lag"})
+                     )
+    fundamentals = (fundamentals
+             .merge(fundamentals_lags, how="left", on=["ticker", "year"])
+             .assign(ni=lambda x: np.log(1 + x["csho"] * x["ajex"]) - np.log(1 + x["csho_lag"] * x["ajex_lag"]))
+             )
+    fundamentals = fundamentals.replace([np.inf, -np.inf], np.nan)
+    fundamentals.fillna(0, inplace=True)
+    fundamentals['investment'] = (df['at_lag'] - df['at']) / df['at_lag']
+    fundamentals['oa'] = (df['act'] - df['che'] - df['lct'] - df['txp'] - df['dp']) / df['at_lag']
+    fundamentals['ol'] = (df['lt'] - df['dlc'] - df['dltt']) / df['at_lag']
+    fundamentals['op'] = (df['sale'] - df['cogs'] - df['xsga'] - df['xint'] - df['txditc']) / df['at_lag']
 
     fundamentals.fillna(0, inplace=True)
 
