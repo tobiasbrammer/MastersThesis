@@ -84,6 +84,7 @@ def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
 
             print(f"Batch {j} out of {batches} done ({(j / batches) * 100:.2f}%)\n")
 
+
     def get_monthly_crsp_data(wrds, start_date, end_date):
         import yfinance as yf
 
@@ -198,9 +199,40 @@ def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
 
     def get_comp_data(wrds, start_date):
         compustat_query = (f"""
-            SELECT gvkey, datadate, seq, ceq, at, lt, txditc, txdb, itcb,  pstkrv, 
-            pstkl, pstk, capx, oancf, sale, cogs, xint, xsga 
-            FROM comp.funda 
+            SELECT 
+            gvkey, 
+            datadate, 
+            seq, 
+            ceq, 
+            at, 
+            lt, 
+            txditc, 
+            txdb, 
+            itcb, 
+            pstkrv, 
+            pstkl, 
+            pstk, 
+            capx, 
+            oancf, 
+            sale, 
+            cogs, 
+            xint, 
+            xsga, 
+            che, 
+            ivao, 
+            dlc, 
+            dltt, 
+            mib, 
+            pstk, 
+            dp, 
+            act, 
+            lct, 
+            txp, 
+            sale, 
+            dvt, 
+            wcapch, 
+            ppegt
+            FROM comp.funda
             WHERE indfmt = 'INDL' 
             AND datafmt = 'STD' 
             AND consol = 'C' 
@@ -302,34 +334,13 @@ def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
 
     comp['year'] = comp['jdate'].dt.year
 
-    # create preferrerd stock:
-    # 1st choice: Preferred stock - Redemption Value
-    # 2nd choice: Preferred stock - Liquidating Value
-    # 3rd choice: Preferred stock - Carrying Value, Stock (Capital) - Total
-    comp['pref'] = np.where(comp['pstkrq'].isnull(), comp['pstkr'], comp['pstkr'])
-    comp['pref'] = np.where(comp['pref'].isnull(), comp['pstk'], comp['pref'])
-    comp['pref'] = np.where(comp['pref'].isnull(), 0, comp['pref'])
-
-    # fill in missing values for deferred taxes and investment tax credit
-    comp['txdb'] = comp['txdb'].fillna(0)
-    comp['itcc'] = comp['itcc'].fillna(0)
-
-    # create book equity
-    # Daniel and Titman (JF 1997):
-    # BE = stockholders' equity + deferred taxes + investment tax credit - Preferred Stock
-
-    comp['be'] = comp['seq'] + comp['txdb'] + comp['itcc'] - comp['pref']
-
-
     #########################
     # Momentum Factor       #
     #########################
 
     # Create (12,1) Momentum Factor with at least 6 months of returns
 
-    comp_tmp = comp.copy()
-
-    _tmp_crsp = comp_tmp[['permno', 'date', 'ret', 'me', 'exchcd']].sort_values(['permno', 'date']).set_index('date')
+    _tmp_crsp = comp.copy()[['permno', 'date', 'ret', 'exchange', 'mktcap']].sort_values(['permno', 'date']).set_index('date')
     # replace missing return with 0
     _tmp_crsp['ret'] = _tmp_crsp['ret'].fillna(0)
     _tmp_crsp['logret'] = np.log(1 + _tmp_crsp['ret'])
@@ -373,8 +384,8 @@ def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
 
     # Get Size Breakpoints for NYSE firms
     sizemom = sizemom.sort_values(['date', 'permno']).drop_duplicates()
-    nyse = sizemom[sizemom['exchcd'] == 1]
-    nyse_break = nyse.groupby(['date'])['size'].describe(percentiles=[.2, .4, .6, .8]).reset_index()
+    nyse = sizemom[sizemom['exchange'] == 'NYSE']
+    nyse_break = nyse.groupby(['date'])['mktcap'].describe(percentiles=[.2, .4, .6, .8]).reset_index()
     nyse_break = nyse_break[['date', '20%', '40%', '60%', '80%']] \
         .rename(columns={'20%': 'dec20', '40%': 'dec40', '60%': 'dec60', '80%': 'dec80'})
 
@@ -383,15 +394,15 @@ def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
 
     # Add NYSE Size Breakpoints to the Data
     def size_group(row):
-        if 0 <= row['size'] < row['dec20']:
+        if 0 <= row['mktcap'] < row['dec20']:
             value = 1
-        elif row['size'] < row['dec40']:
+        elif row['mktcap'] < row['dec40']:
             value = 2
-        elif row['size'] < row['dec60']:
+        elif row['mktcap'] < row['dec60']:
             value = 3
-        elif row['size'] < row['dec80']:
+        elif row['mktcap'] < row['dec80']:
             value = 4
-        elif row['size'] >= row['dec80']:
+        elif row['mktcap'] >= row['dec80']:
             value = 5
         else:
             value = np.nan
@@ -399,12 +410,11 @@ def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
 
     sizemom['group'] = sizemom.apply(size_group, axis=1)
     sizemom['year'] = sizemom['date'].dt.year - 1
-    sizemom = sizemom[['permno', 'year', 'mom', 'group', 'size', 'ret']]
-    comp = pd.merge(comp5, sizemom, how='inner', on=['permno', 'year'])
+    sizemom = sizemom[['permno', 'year', 'mom', 'group', 'ret']]
+    comp = pd.merge(comp, sizemom, how='inner', on=['permno', 'year'])
 
-    del comp5, sizemom, crsp_m
+    del sizemom
 
-    db.close()
 
     return comp
 
@@ -419,8 +429,8 @@ def process_compustat(save=False):
     fundamentals = pd.DataFrame()
     fundamentals['ticker'] = df['ticker']
     fundamentals['date'] = df['jdate']
-    fundamentals['noa'] = ((df['atq'] - df['cheq'] - df['ivaoq']) - (
-            df['atq'] - df['dlcq'] - df['dlttq'] - df['mibq'] - df['pstkq'] - df['ceqq']))
+    fundamentals['noa'] = ((df['at'] - df['che'] - df['ivao']) - (
+            df['at'] - df['dlc'] - df['dltt'] - df['mib'] - df['pstk'] - df['ceq']))
     fundamentals['prc'] = df['p']
     fundamentals['shrout'] = df['tso']
     fundamentals['cap'] = df['prc'] * df['shrout']
