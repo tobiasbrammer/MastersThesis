@@ -233,7 +233,9 @@ def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
             ni,
             ib,
             xrd,
-            oiadp
+            oiadp,
+            ajex,
+            csho
             FROM comp.funda
             WHERE indfmt = 'INDL' 
             AND datafmt = 'STD' 
@@ -418,21 +420,28 @@ def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
 
     del sizemom
 
-    # Save in ipca_test_data/comp.parquet
-    comp.to_parquet('ipca_test_data/comp.parquet')
+    # Close connection to wrds odbc database
+    wrds.dispose()
 
-    return
+    # Save in ipca_test_data/comp.parquet
+    # comp.to_parquet('ipca_test_data/comp.parquet')
+
+    return comp
 
 
 def process_compustat(save=False):
     import pandas as pd
     import numpy as np
 
+    # Set .streamlit/config.toml to [global]
+    # dataFrameSerialization = "legacy"
+
     df = get_wrds()
 
     df = df.fillna(0)
+
     fundamentals = pd.DataFrame()
-    fundamentals['ticker'] = df['ticker']
+    fundamentals['ticker'] = df['ticker'].astype('str')
     fundamentals['date'] = df['jdate']
     fundamentals['year'] = df['jdate'].dt.year
     fundamentals['noa'] = ((df['at'] - df['che'] - df['ivao']) - (
@@ -454,7 +463,7 @@ def process_compustat(save=False):
     fundamentals['cf2p'] = (df['ib'] + df['dp'] + df['txdb']) / (fundamentals['prc'] * fundamentals['shrout'])
     fundamentals['cto'] = df['sale'] / df['at']
     fundamentals['d2a'] = df['dp'] / df['at']
-    # fundamentals['d2p'] = df['divamty'] / df['lme']
+
     fundamentals['dpi2a'] = (df['ppegt'] + df['inv']) / df['at']
     fundamentals['e2p'] = df['ni'] / fundamentals['prc']
     fundamentals['fc2y'] = (df['xsga'] + df['xrd']) / df['sale']
@@ -492,6 +501,7 @@ def process_compustat(save=False):
     fundamentals['oa'] = (df['act'] - df['che'] - df['lct'] - df['txp'] - df['dp']) / df['at_lag']
     fundamentals['ol'] = (df['lt'] - df['dlc'] - df['dltt']) / df['at_lag']
     fundamentals['op'] = (df['sale'] - df['cogs'] - df['xsga'] - df['xint'] - df['txditc']) / df['at_lag']
+    # fundamentals['d2p'] = df['divamty'] / df['lme']
 
     fundamentals.fillna(0, inplace=True)
 
@@ -503,3 +513,7 @@ def process_compustat(save=False):
         return
 
     return fundamentals
+
+
+
+db = process_compustat(save=True)
