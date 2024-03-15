@@ -592,7 +592,7 @@ Get daily-data
 """
 
 
-def get_daily_data():
+def get_daily_data(pivot=True):
     """
     Returns daily excess returns, adjusted close, and volume
     """
@@ -614,10 +614,12 @@ def get_daily_data():
 
     data = pd.concat(data)
     data = data[~(data['ticker'].isna())]
-    data = data.pivot(columns='ticker')
 
-    # Save data
-    data.to_parquet('daily_data.parquet')
+    if pivot:
+        # Pivot data
+        data = data.pivot(columns='ticker')
+        data.to_parquet('daily_data.parquet')
+        return
 
     return data
 
@@ -631,9 +633,12 @@ def de_annualize(annual_rate, periods=365):
     return (1 + annual_rate) ** (1 / periods) - 1
 
 
-def get_risk_free_rate():
+def get_risk_free_rate(
+        start_date="1998-12-31",
+        end_date="2024-01-01",
+):
     # download 3-month us treasury bills rates
-    annualized = yf.download("^IRX", start="1998-12-31", end="2024-01-01")["Adj Close"]
+    annualized = yf.download("^IRX", start=start_date, end=end_date)["Adj Close"]
 
     # de-annualize
     daily = annualized.apply(de_annualize)
