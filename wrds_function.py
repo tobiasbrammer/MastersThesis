@@ -1,5 +1,6 @@
 # Get WRDS data for Instrumented PCA
 def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
+    # ToDo: Figure out why there are so many rows. Seems like some part of the code uses daily date...
     from pandas.tseries.offsets import MonthEnd
     import pandas as pd
     import numpy as np

@@ -236,7 +236,7 @@ def run_ipca():
     print("Preprocessing daily returns")
     preprocessDailyReturns()
     print("Initializing IPCA factor model")
-    ipca = IPCA(logdir=os.path.join("residuals-new", "ipca_normalized"))
+    ipca = IPCA(logdir=os.path.join("factor_data/residuals", "ipca_normalized"))
     for capProportion in [0.01]:  # , 0.001]:
         for sizeWindow in [4 * 12]:  # 15*12]:
             print(
@@ -725,7 +725,7 @@ class IPCA:
 
         # DataTrain = np.load( # ToDo: What is this file? Not generated until later.
         #      os.path.join(
-        #          "residuals-new",
+        #          "factor_data/residuals",
         #          "ipca_normalized",
         #          f"IPCA_DailyOOSresiduals_1_factors_{initialMonths}_initialMonths_{sizeWindow}_window_{CapProportion}_cap.npy",
         #      )
@@ -746,7 +746,7 @@ class IPCA:
             superMask
         )  # the maximum assets that are going to be involved in the interesting residuals
         print(f"superMask {superMask.shape} {Nsupertilde} {len(superMask)}")
-        np.save("residuals-new/super_mask.npy", superMask)
+        np.save("factor_data/residuals/super_mask.npy", superMask)
 
         if not os.path.isdir(
             self._logdir + "_stuff"
