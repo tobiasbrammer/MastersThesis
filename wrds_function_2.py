@@ -84,7 +84,6 @@ def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
 
             print(f"Batch {j} out of {batches} done ({(j / batches) * 100:.2f}%)\n")
 
-
     def get_monthly_crsp_data(wrds, start_date, end_date):
         import yfinance as yf
         from statsmodels.formula.api import ols
@@ -211,13 +210,17 @@ def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
 
         print(f'Fetching market returns and calculating betas')
         # Regress ret on mkt_ret to extract betas
-        _beta = crsp_monthly.copy()[['jdate', 'permno', 'ret', 'mkt_ret']].sort_values(['permno', 'date']).set_index('date')
+        _beta = crsp_monthly.copy()[['jdate', 'permno', 'ret', 'mkt_ret']].sort_values(['permno', 'jdate']).set_index(
+            'jdate')
         _beta['ret'] = _beta['ret'].fillna(0)
         _beta['mkt_ret'] = _beta['mkt_ret'].fillna(0)
-        _beta = _beta.groupby('permno').apply(lambda x: pd.Series(ols(x['ret'], x['mkt_ret']).beta)).reset_index()
-        _beta.columns = ['permno', 'beta']
+        _beta = _beta.groupby('permno').apply(lambda x: pd.Series(ols('ret ~ mkt_ret', data=pd.DataFrame(
+            {'ret': x['ret'], 'mkt_ret': x['mkt_ret']})).fit().params)).reset_index()
+        # Drop intercept
+        _beta = _beta.drop(columns=['Intercept'])
+        # Rename mkt_ret to beta
+        _beta.rename(columns={'mkt_ret': 'beta'}, inplace=True)
         crsp_monthly = crsp_monthly.merge(_beta, how='left', on='permno')
-
 
         return crsp_monthly
 
@@ -294,7 +297,7 @@ def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
             AND linkprim IN ('P', 'C') 
             AND usedflag = 1
         """
-        )
+                                  )
 
         ccm = pd.read_sql_query(
             sql=ccmxpf_linktable_query,
@@ -323,10 +326,9 @@ def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
                     )
 
     comp = (crsp_monthly
-     .assign(year=lambda x: pd.DatetimeIndex(x["month"]).year)
-     .merge(compustat, how="left", on=["gvkey", "year"])
-     )
-
+            .assign(year=lambda x: pd.DatetimeIndex(x["month"]).year)
+            .merge(compustat, how="left", on=["gvkey", "year"])
+            )
 
     # Use Fama French 1993 timing convention, and use balance-sheet data from the fiscal year ending in year t − 1 for returns from July of year t to June of year t + 1.
     comp['jdate'] = comp['datadate'] + MonthEnd(0) + pd.DateOffset(months=6)  # Fama French 1993 timing convention
@@ -341,7 +343,8 @@ def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
 
     print(f'Calculating momentum factor')
 
-    _tmp_crsp = comp.copy()[['permno', 'date', 'ret', 'exchange', 'mktcap']].sort_values(['permno', 'date']).set_index('date')
+    _tmp_crsp = comp.copy()[['permno', 'date', 'ret', 'exchange', 'mktcap']].sort_values(['permno', 'date']).set_index(
+        'date')
     # replace missing return with 0
     _tmp_crsp['ret'] = _tmp_crsp['ret'].fillna(0)
     _tmp_crsp['logret'] = np.log(1 + _tmp_crsp['ret'])
@@ -353,7 +356,8 @@ def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
                        on=['permno', 'date'])
     del _tmp_crsp, _tmp_cumret
     sizemom['mom'] = sizemom.groupby('permno')['cumret'].shift(1)
-    sizemom = sizemom[sizemom['date'].dt.month == 6].drop(['logret', 'cumret'], axis=1).rename(columns={'mktcap': 'size'})
+    sizemom = sizemom[sizemom['date'].dt.month == 6].drop(['logret', 'cumret'], axis=1).rename(
+        columns={'mktcap': 'size'})
 
     #########################
     # CAPM Beta       #
@@ -434,8 +438,6 @@ def process_compustat(save=False):
     # Set .streamlit/config.toml to [global]
     # dataFrameSerialization = "legacy"
 
-
-
     df = get_wrds()
 
     print(f'Constructing final characteristics')
@@ -487,16 +489,16 @@ def process_compustat(save=False):
     fundamentals['csho'] = df['csho']
     fundamentals['ajex'] = df['ajex']
     fundamentals_lags = (fundamentals[["ticker", "year", "at", "cap", "csho", "ajex"]]
-                     .assign(year=lambda x: x["year"] + 1)
-                     .rename(columns={"at": "at_lag",
-                                      "cap": "lme",
-                                      "csho": "csho_lag",
-                                      "ajex": "ajex_lag"})
-                     )
+                         .assign(year=lambda x: x["year"] + 1)
+                         .rename(columns={"at": "at_lag",
+                                          "cap": "lme",
+                                          "csho": "csho_lag",
+                                          "ajex": "ajex_lag"})
+                         )
     fundamentals = (fundamentals
-             .merge(fundamentals_lags, how="left", on=["ticker", "year"])
-             .assign(ni=lambda x: np.log(1 + x["csho"] * x["ajex"]) - np.log(1 + x["csho_lag"] * x["ajex_lag"]))
-             )
+                    .merge(fundamentals_lags, how="left", on=["ticker", "year"])
+                    .assign(ni=lambda x: np.log(1 + x["csho"] * x["ajex"]) - np.log(1 + x["csho_lag"] * x["ajex_lag"]))
+                    )
     fundamentals = fundamentals.replace([np.inf, -np.inf], np.nan)
     fundamentals.fillna(0, inplace=True)
     fundamentals['investment'] = (df['at_lag'] - df['at']) / df['at_lag']
@@ -518,6 +520,3 @@ def process_compustat(save=False):
 
     return fundamentals
 
-
-
-db = process_compustat(save=True)
