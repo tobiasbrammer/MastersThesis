@@ -1,460 +1,339 @@
 # Get WRDS data for Instrumented PCA
-def get_wrds(start_date="1950-12-31", end_date="2024-01-01"):
+def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
+    from pandas.tseries.offsets import MonthEnd
     import pandas as pd
     import numpy as np
-    import wrds as wrds
-    from pandas.tseries.offsets import MonthEnd
-    import yfinance as yf
+    from sqlalchemy import create_engine
 
     pd.set_option('future.no_silent_downcasting', True)
 
-    db = wrds.Connection(wrds_username='tobiasbrammer')
-    # Get tickers from daily.parquet
-    tickers = pd.read_parquet('daily.parquet')['ticker'].unique()
+    connection_string = (
+        "postgresql+psycopg2://"
+        f"tobiasbrammer:naqgUf-bantas-1ruwby"
+        "@wrds-pgdata.wharton.upenn.edu:9737/wrds"
+    )
 
-    def get_crsp_data(db, start_date, end_date):
-        query = f"""
-                SELECT a.permno, a.permco, b.ncusip, a.date, 
-                b.shrcd, b.exchcd, b.siccd,
-                a.ret, a.vol, a.shrout, a.prc, a.cfacpr, a.cfacshr
-                FROM crsp.msf AS a
-                LEFT JOIN crsp.msenames AS b
-                ON a.permno=b.permno
-                AND b.namedt<=a.date
-                AND a.date<=b.nameendt
-                WHERE 1=1
-                AND a.date BETWEEN '{start_date}' AND '{end_date}'
-                AND b.shrcd BETWEEN 10 AND 11
+    wrds = create_engine(connection_string, pool_pre_ping=True)
+
+    def get_daily_crsp_data(wrds, start_date, end_date):
+        # ToDo: Not finished.
+        from functions import get_risk_free_rate
+        from tqdm import tqdm
+        crsp_monthly = get_monthly_crsp_data(wrds, start_date, end_date)
+        rf = get_risk_free_rate(start_date, end_date)
+        rf.rename(columns={'Adj Close': 'rf'}, inplace=True)
+
+        permnos = list(crsp_monthly["permno"].unique().astype(str))
+
+        batch_size = 500
+        batches = np.ceil(len(permnos) / batch_size).astype(int)
+
+        daily_rets = pd.DataFrame()
+
+        #for j in range(1, batches + 1):
+        for j in tqdm(range(1, batches + 1), miniters=25):
+
+            permno_batch = permnos[
+                           ((j - 1) * batch_size):(min(j * batch_size, len(permnos)))
+                           ]
+
+            permno_batch_formatted = (
+                ", ".join(f"'{permno}'" for permno in permno_batch)
+            )
+            permno_string = f"({permno_batch_formatted})"
+
+            crsp_daily_sub_query = (
+                "SELECT permno, dlycaldt AS date, dlyret AS ret, dlyticker AS ticker "
+                "FROM crsp.dsf_v2 "
+                f"WHERE permno IN {permno_string} "
+                f"AND dlycaldt BETWEEN '{start_date}' AND '{end_date}'"
+            )
+
+            crsp_daily_sub = (pd.read_sql_query(
+                sql=crsp_daily_sub_query,
+                con=wrds,
+                dtype={"permno": int},
+                parse_dates={"date"}
+            )
+                              .dropna()
+                              )
+
+            if not crsp_daily_sub.empty:
+
+                crsp_daily_sub = (crsp_daily_sub
+                                  .assign(
+                    month=lambda x:
+                    x["date"].dt.to_period("M").dt.to_timestamp()
+                )
+                                  .merge(rf[["date", "rf"]],
+                                         on="date", how="left")
+                                  .assign(
+                    ret_excess=lambda x:
+                    ((x["ret"] - x["rf"]).clip(lower=-1))
+                )
+                                  .get(["permno", "date", "month", "ret_excess"])
+                                  )
+
+                if j == 1:
+                    daily_rets = crsp_daily_sub
+                else:
+                    daily_rets = (daily_rets
+                                  .append(crsp_daily_sub)
+                                  )
+
+
+
+
+    def get_monthly_crsp_data(wrds, start_date, end_date):
+        import yfinance as yf
+        from statsmodels.formula.api import ols
+
+        crsp_monthly_query = (f"""
+        SELECT msf.ticker, msf.permno, msf.mthcaldt AS date, 
+            date_trunc('month', msf.mthcaldt)::date AS month, 
+            msf.mthret AS ret, msf.shrout, msf.mthprc AS altprc, 
+            msf.primaryexch, msf.siccd, msf.mthvol AS vol
+            FROM crsp.msf_v2 AS msf 
+            LEFT JOIN crsp.stksecurityinfohist AS ssih 
+            ON msf.permno = ssih.permno AND 
+            ssih.secinfostartdt <= msf.mthcaldt AND 
+            msf.mthcaldt <= ssih.secinfoenddt 
+            WHERE msf.mthcaldt BETWEEN '{start_date}' AND '{end_date}' 
+            AND ssih.sharetype = 'NS' 
+            AND ssih.securitytype = 'EQTY' 
+            AND ssih.securitysubtype = 'COM' 
+            AND ssih.usincflg = 'Y' 
+            AND ssih.issuertype in ('ACOR', 'CORP')
+        """
+                              )
+        print(f'Fetching monthly CRSP data')
+        crsp_monthly = (pd.read_sql_query(
+            sql=crsp_monthly_query,
+            con=wrds,
+            dtype={"permno": int, "siccd": int},
+            parse_dates={"date", "month"})
+                        .assign(shrout=lambda x: x["shrout"] * 1000)
+                        )
+
+        crsp_monthly = (crsp_monthly
+                        .assign(mktcap=lambda x: x["shrout"] * x["altprc"] / 1000000)
+                        .assign(mktcap=lambda x: x["mktcap"].replace(0, np.nan))
+                        )
+
+        crsp_monthly['jdate'] = crsp_monthly['date'] + MonthEnd(0)
+
+        mktcap_lag = (crsp_monthly
+                      .assign(
+            month=lambda x: x["month"] + pd.DateOffset(months=1),
+            mktcap_lag=lambda x: x["mktcap"]
+        )
+                      .get(["permno", "month", "mktcap_lag"])
+                      )
+
+        crsp_monthly = (crsp_monthly
+                        .merge(mktcap_lag, how="left", on=["permno", "month"])
+                        )
+
+        def assign_exchange(primaryexch):
+            if primaryexch == "N":
+                return "NYSE"
+            elif primaryexch == "A":
+                return "AMEX"
+            elif primaryexch == "Q":
+                return "NASDAQ"
+            else:
+                return "Other"
+
+        crsp_monthly["exchange"] = (crsp_monthly["primaryexch"]
+                                    .apply(assign_exchange)
+                                    )
+
+        def assign_industry(siccd):
+            if 1 <= siccd <= 999:
+                return "Agriculture"
+            elif 1000 <= siccd <= 1499:
+                return "Mining"
+            elif 1500 <= siccd <= 1799:
+                return "Construction"
+            elif 2000 <= siccd <= 3999:
+                return "Manufacturing"
+            elif 4000 <= siccd <= 4899:
+                return "Transportation"
+            elif 4900 <= siccd <= 4999:
+                return "Utilities"
+            elif 5000 <= siccd <= 5199:
+                return "Wholesale"
+            elif 5200 <= siccd <= 5999:
+                return "Retail"
+            elif 6000 <= siccd <= 6799:
+                return "Finance"
+            elif 7000 <= siccd <= 8999:
+                return "Services"
+            elif 9000 <= siccd <= 9999:
+                return "Public"
+            else:
+                return "Missing"
+
+        crsp_monthly["industry"] = (crsp_monthly["siccd"]
+                                    .apply(assign_industry)
+                                    )
+
+        print(f'Fetching risk free rate and calculating excess returns')
+        rf = yf.download("^IRX", start=start_date, end=end_date)["Adj Close"]
+        rf = pd.DataFrame(rf.apply(lambda x: (1 + x) ** (1 / 12) - 1))
+        # Set Date as datetime
+        rf.index = pd.to_datetime(rf.index)
+        # Add a column with the end of month date
+        rf['jdate'] = rf.index + MonthEnd(0)
+        # Rename Adj Close to rf
+        rf.rename(columns={'Adj Close': 'rf'}, inplace=True)
+        # Keep the last observation of each month
+        rf = rf.groupby('jdate').last()
+
+        crsp_monthly = (crsp_monthly
+                        .merge(rf, how="left", on="jdate")
+                        .assign(ret_excess=lambda x: x["ret"] - x["rf"])
+                        .assign(ret_excess=lambda x: x["ret_excess"].clip(lower=-1))
+                        .drop(columns=["rf"])
+                        )
+
+        mkt = yf.download("^GSPC", start=start_date, end=end_date)["Adj Close"]
+        mkt = pd.DataFrame(mkt.apply(lambda x: np.log(x)))
+        mkt.index = pd.to_datetime(mkt.index)
+        mkt['jdate'] = mkt.index + MonthEnd(0)
+        mkt.rename(columns={'Adj Close': 'mkt'}, inplace=True)
+        mkt = mkt.groupby('jdate').last()
+        mkt['mkt_ret'] = mkt['mkt'] - mkt['mkt'].shift(1)
+
+        crsp_monthly = (crsp_monthly
+                        .merge(mkt, how="left", on="jdate"))
+
+        print(f'Fetching market returns and calculating betas')
+        # Regress ret on mkt_ret to extract betas
+        _beta = crsp_monthly.copy()[['jdate', 'permno', 'ret', 'mkt_ret']].sort_values(['permno', 'jdate']).set_index(
+            'jdate')
+        _beta['ret'] = _beta['ret'].fillna(0)
+        _beta['mkt_ret'] = _beta['mkt_ret'].fillna(0)
+        _beta = _beta.groupby('permno').apply(lambda x: pd.Series(ols('ret ~ mkt_ret', data=pd.DataFrame(
+            {'ret': x['ret'], 'mkt_ret': x['mkt_ret']})).fit().params)).reset_index()
+        # Drop intercept
+        _beta = _beta.drop(columns=['Intercept'])
+        # Rename mkt_ret to beta
+        _beta.rename(columns={'mkt_ret': 'beta'}, inplace=True)
+        crsp_monthly = crsp_monthly.merge(_beta, how='left', on='permno')
+
+        return crsp_monthly
+
+    def get_comp_data(wrds, start_date):
+        compustat_query = (f"""
+            SELECT 
+            gvkey, datadate, seq, ceq, at, lt, txditc, txdb, itcb, pstkrv, 
+            pstkl, capx, oancf, cogs, xint, xsga, che, ivao, dlc, dltt, mib, pstk, 
+            dp, act, lct, txp, sale, dvt, wcapch, ppegt, ni, ib, xrd, oiadp, ajex, csho
+            FROM comp.funda
+            WHERE indfmt = 'INDL' 
+            AND datafmt = 'STD' 
+            AND consol = 'C' 
+            AND datadate BETWEEN '{start_date}' AND '{end_date}'
             """
-        crsp_m = db.raw_sql(query, date_cols=['date'])
-        crsp_m[['permco', 'permno', 'shrcd', 'exchcd']] = crsp_m[['permco', 'permno', 'shrcd', 'exchcd']].astype(int)
-        crsp_m['jdate'] = crsp_m['date'] + MonthEnd(0)  # Align dates as end of month
-        crsp_m['p'] = crsp_m['prc'].abs() / crsp_m['cfacpr']  # Adjust prices
-        crsp_m['tso'] = crsp_m['shrout'] * crsp_m['cfacshr'] * 1e3  # Adjust shares
-        crsp_m['me'] = crsp_m['p'] * crsp_m['tso'] / 1e6  # Market cap in millions
-        crsp_summe = crsp_m.groupby(['jdate', 'permco'])['me'].sum().reset_index().rename(columns={'me': 'me_comp'})
-        crsp_m = pd.merge(crsp_m, crsp_summe, how='inner', on=['jdate', 'permco'])
+                           )
 
-        return crsp_m
+        print(f'Fetching Compustat data')
 
-    def get_comp_data(db, start_date):
-        query = f"""
-                SELECT *
-                FROM comp.fundq
-                WHERE indfmt='INDL' 
-                AND datafmt='STD'
-                AND popsrc='D'
-                AND consol='C'
-                AND datadate >= '{start_date}'
-                AND tic IN {tuple(tickers)}
-            """
-        comp = db.raw_sql(query, date_cols=['datadate'])
-        comp['year'] = comp['datadate'].dt.year
-        comp = comp.loc[comp['seqq'] > 0]
-        comp['pref'] = comp[['pstkrq', 'pstkrq', 'pstkq']].bfill(axis=1).iloc[:, 0].fillna(0)
-        comp.reset_index(drop=True, inplace=True)
-        return comp
+        compustat = pd.read_sql_query(
+            sql=compustat_query,
+            con=wrds,
+            dtype={"gvkey": str},
+            parse_dates={"datadate"}
+        )
 
-    def get_ccm_data(db):
-        query = """
-                SELECT gvkey, lpermno AS permno, lpermco AS permco, linktype, linkprim, 
-                linkdt, linkenddt
-                FROM crsp.ccmxpf_linktable
-                WHERE (linktype ='LU' OR linktype='LC')
-                AND linkprim IN ('P', 'C') AND usedflag=1
-            """
-        ccm = db.raw_sql(query, date_cols=['linkdt', 'linkenddt'])
-        ccm['linkenddt'] = ccm['linkenddt'].fillna(pd.to_datetime('today'))
+        compustat = (compustat
+        .assign(
+            be=lambda x:
+            (x["seq"].combine_first(x["ceq"] + x["pstk"])
+             .combine_first(x["at"] - x["lt"]) +
+             x["txditc"].combine_first(x["txdb"] + x["itcb"]).fillna(0) -
+             x["pstkrv"].combine_first(x["pstkl"])
+             .combine_first(x["pstk"]).fillna(0))
+        )
+        .assign(
+            be=lambda x: x["be"].apply(lambda y: np.nan if y <= 0 else y)
+        )
+        .assign(
+            op=lambda x:
+            ((x["sale"] - x["cogs"].fillna(0) -
+              x["xsga"].fillna(0) - x["xint"].fillna(0)) / x["be"])
+        )
+        )
+        # We keep only the last available information for each firm-year group.
+        compustat = (compustat
+                     .assign(year=lambda x: pd.DatetimeIndex(x["datadate"]).year)
+                     .sort_values("datadate")
+                     .groupby(["gvkey", "year"])
+                     .tail(1)
+                     .reset_index()
+                     )
+        # We also compute the investment ratio (inv) according to Kenneth French’s variable definitions as the change in total assets from one fiscal year to another.
+        compustat_lag = (compustat
+                         .get(["gvkey", "year", "at"])
+                         .assign(year=lambda x: x["year"] + 1)
+                         .rename(columns={"at": "at_lag"})
+                         )
+
+        compustat = (compustat
+                     .merge(compustat_lag, how="left", on=["gvkey", "year"])
+                     .assign(inv=lambda x: x["at"] / x["at_lag"] - 1)
+                     .assign(inv=lambda x: np.where(x["at_lag"] <= 0, np.nan, x["inv"]))
+                     )
+
+        return compustat
+
+    def get_ccm_data(wrds):
+        ccmxpf_linktable_query = ("""
+            SELECT lpermno AS permno, gvkey, linkdt, 
+            COALESCE(linkenddt, CURRENT_DATE) AS linkenddt 
+            FROM crsp.ccmxpf_linktable 
+            WHERE linktype IN ('LU', 'LC') 
+            AND linkprim IN ('P', 'C') 
+            AND usedflag = 1
+        """
+                                  )
+
+        ccm = pd.read_sql_query(
+            sql=ccmxpf_linktable_query,
+            con=wrds,
+            dtype={"permno": int, "gvkey": str},
+            parse_dates={"linkdt", "linkenddt"}
+        )
         return ccm
 
-    crsp_m = get_crsp_data(db, start_date, end_date)
+    crsp_monthly = get_monthly_crsp_data(wrds, start_date, end_date)
 
-    rf = yf.download("^IRX", start="1997-12-31", end="2024-01-01")["Adj Close"]
-    rf = pd.DataFrame(rf.apply(lambda x: (1 + x) ** (1 / 12) - 1))
-    # Set Date as datetime
-    rf.index = pd.to_datetime(rf.index)
-    # Add a column with the end of month date
-    rf['jdate'] = rf.index + MonthEnd(0)
-    # Rename Adj Close to rf
-    rf.rename(columns={'Adj Close': 'rf'}, inplace=True)
-    # Keep the last observation of each month
-    rf = rf.groupby('jdate').last()
-    crsp_m = pd.merge(crsp_m, rf, how='left', on=['jdate'])
+    compustat = get_comp_data(wrds, start_date)
 
-    del rf
+    ccmxpf_linktable = get_ccm_data(wrds)
 
-    ###################
-    # Compustat Block #
-    ###################
-    comp = get_comp_data(db, start_date)
+    print(f'Merging CRSP and Compustat data')
 
-    comp['year'] = comp['datadate'].dt.year
+    ccm_links = (crsp_monthly
+                 .merge(ccmxpf_linktable, how="inner", on="permno")
+                 .query("~gvkey.isnull() & (date >= linkdt) & (date <= linkenddt)")
+                 .get(["permno", "gvkey", "date"])
+                 )
 
-    # select sample where seq is greater than 0
-    comp = comp.loc[comp['seqq'] > 0]
+    crsp_monthly = (crsp_monthly
+                    .merge(ccm_links, how="left", on=["permno", "date"])
+                    )
 
-    # create preferrerd stock:
-    # 1st choice: Preferred stock - Redemption Value
-    # 2nd choice: Preferred stock - Liquidating Value
-    # 3rd choice: Preferred stock - Carrying Value, Stock (Capital) - Total
-    comp['pref'] = np.where(comp['pstkrq'].isnull(), comp['pstkrq'], comp['pstkrq'])
-    comp['pref'] = np.where(comp['pref'].isnull(), comp['pstkq'], comp['pref'])
-    comp['pref'] = np.where(comp['pref'].isnull(), 0, comp['pref'])
+    comp = (crsp_monthly
+            .assign(year=lambda x: pd.DatetimeIndex(x["month"]).year)
+            .merge(compustat, how="left", on=["gvkey", "year"])
+            )
 
-    # fill in missing values for deferred taxes and investment tax credit
-    comp['txdbq'] = comp['txdbq'].fillna(0)
-    comp['itccy'] = comp['itccy'].fillna(0)
+    # Use Fama French 1993 timing convention, and use balance-sheet data from the fiscal year ending in year t − 1 for returns from July of year t to June of year t + 1.
+    comp['jdate'] = comp['datadate'] + MonthEnd(0) + pd.DateOffset(months=6)  # Fama French 1993 timing convention
 
-    # create book equity
-    # Daniel and Titman (JF 1997):
-    # BE = stockholders' equity + deferred taxes + investment tax credit - Preferred Stock
-
-    comp['be'] = comp['seqq'] + comp['txdbq'] + comp['itccy'] - comp['pref']
-
-    # keep only records with non-negative book equity
-    comp = comp.loc[comp['be'] >= 0]
-
-    # Read tickers from daily.parquet
-    tickers = pd.read_parquet('daily.parquet')['ticker'].unique()
-    comp = comp[comp['tic'].isin(tickers)]
-    del tickers
-
-    #########################
-    # Link Compustat and CRSP #
-    #########################
-
-    ccm = get_ccm_data(db)
-
-    # if linkenddt is missing then set to today date
-    ccm['linkenddt'] = ccm['linkenddt'].fillna(pd.to_datetime('today'))
-
-    ccm1 = pd.merge(comp, ccm, how='left', on=['gvkey'])
-    del ccm
-    ccm1['jdate'] = ccm1['datadate'] + MonthEnd(0)
-    ccm1['year'] = ccm1.datadate.dt.year
-
-    # Impose date ranges
-    ccm2 = ccm1[(ccm1['datadate'] >= ccm1['linkdt']) & (ccm1['datadate'] <= ccm1['linkenddt'])].drop(
-        columns=['linktype', 'linkdt', 'linkenddt'])
-    del ccm1
-
-    comp1 = pd.merge(ccm2, crsp_m, how='inner',
-                     on=['permco', 'permno', 'jdate'])
-    del ccm2
-
-    comp1['bm'] = np.where(comp1.me_comp > 0, comp1.be / comp1.me_comp, np.nan)
-
-    comp2 = comp1.sort_values(['permno', 'year', 'datadate', 'linkprim', 'bm']) \
-        .drop_duplicates()
-    del comp1
-    # pick max datadate for a given permno year combo (firm changes fiscal period)
-    maxdatadate = comp2.groupby(['permno', 'year'])['datadate'].max() \
-        .reset_index()
-
-    comp3 = pd.merge(comp2, maxdatadate, how='inner', on=['permno', 'year', 'datadate'])
-    del comp2, maxdatadate
-
-    # Check how many obs have 0 me, and hence will have inf bm
-    comp3.loc[comp3.me_comp == 0]['me_comp'].count()
-    #
-    # #########################
-    # # Assign Fama-French 48 #
-    # #########################
-    # # https: // mba.tuck.dartmouth.edu / pages / faculty / ken.french / Data_Library / det_48_ind_port.html
-    # # function to assign ffi48 classification
-    # def ffi48(row):
-    #     if (100 <= row['sic'] <= 299) or (700 <= row['sic'] <= 799) or (910 <= row['sic'] <= 919) or (
-    #             row['sic'] == 2048):
-    #         ffi48 = 1
-    #         ffi48_desc = 'Agric'
-    #     elif (2000 <= row['sic'] <= 2046) or (2050 <= row['sic'] <= 2063) or (2070 <= row['sic'] <= 2079) \
-    #             or (2090 <= row['sic'] <= 2092) or (row['sic'] == 2095) or (2098 <= row['sic'] <= 2099):
-    #         ffi48 = 2
-    #         ffi48_desc = 'Food'
-    #     elif (2064 <= row['sic'] <= 2068) or (2086 <= row['sic'] <= 2087) or (2096 <= row['sic'] <= 2097):
-    #         ffi48 = 3
-    #         ffi48_desc = 'Soda'
-    #     elif (row['sic'] == 2080) or (2082 <= row['sic'] <= 2085):
-    #         ffi48 = 4
-    #         ffi48_desc = 'Beer'
-    #     elif (2100 <= row['sic'] <= 2199):
-    #         ffi48 = 5
-    #         ffi48_desc = 'Smoke'
-    #     elif (920 <= row['sic'] <= 999) or (3650 <= row['sic'] <= 3652) or (row['sic'] == 3732) or (
-    #             3930 <= row['sic'] <= 3931) or (3940 <= row['sic'] <= 3949):
-    #         ffi48 = 6
-    #         ffi48_desc = 'Toys'
-    #     elif (7800 <= row['sic'] <= 7833) or (7840 <= row['sic'] <= 7841) or (row['sic'] == 7900) or (
-    #             7910 <= row['sic'] <= 7911) or (7920 <= row['sic'] <= 7933) \
-    #             or (7940 <= row['sic'] <= 7949) or (row['sic'] == 7980) or (7990 <= row['sic'] <= 7999):
-    #         ffi48 = 7
-    #         ffi48_desc = 'Fun'
-    #     elif (2700 <= row['sic'] <= 2749) or (2770 <= row['sic'] <= 2771) or (2780 <= row['sic'] <= 2799):
-    #         ffi48 = 8
-    #         ffi48_desc = 'Books'
-    #     elif (row['sic'] == 2047) or (2391 <= row['sic'] <= 2392) or (2510 <= row['sic'] <= 2519) or (
-    #             2590 <= row['sic'] <= 2599) or (2840 <= row['sic'] <= 2844) \
-    #             or (3160 <= row['sic'] <= 3161) or (3170 <= row['sic'] <= 3172) or (3190 <= row['sic'] <= 3199) or (
-    #             row['sic'] == 3229) or (row['sic'] == 3260) \
-    #             or (3262 <= row['sic'] <= 3263) or (row['sic'] == 3269) or (3230 <= row['sic'] <= 3231) or (
-    #             3630 <= row['sic'] <= 3639) or (3750 <= row['sic'] <= 3751) \
-    #             or (row['sic'] == 3800) or (3860 <= row['sic'] <= 3861) or (3870 <= row['sic'] <= 3873) or (
-    #             3910 <= row['sic'] <= 3911) or (3914 <= row['sic'] <= 3915) \
-    #             or (3960 <= row['sic'] <= 3962) or (row['sic'] == 3991) or (row['sic'] == 3995):
-    #         ffi48 = 9
-    #         ffi48_desc = 'Hshld'
-    #     elif (2300 <= row['sic'] <= 2390) or (3020 <= row['sic'] <= 3021) or (3100 <= row['sic'] <= 3111) \
-    #             or (3130 <= row['sic'] <= 3131) or (3140 <= row['sic'] <= 3151) or (3963 <= row['sic'] <= 3965):
-    #         ffi48 = 10
-    #         ffi48_desc = 'Clths'
-    #     elif (8000 <= row['sic'] <= 8099):
-    #         ffi48 = 11
-    #         ffi48_desc = 'Hlth'
-    #     elif (row['sic'] == 3693) or (3840 <= row['sic'] <= 3851):
-    #         ffi48 = 12
-    #         ffi48_desc = 'MedEq'
-    #     elif (2830 <= row['sic'] <= 2831) or (2833 <= row['sic'] <= 2836):
-    #         ffi48 = 13
-    #         ffi48_desc = 'Drugs'
-    #     elif (2800 <= row['sic'] <= 2829) or (2850 <= row['sic'] <= 2879) or (2890 <= row['sic'] <= 2899):
-    #         ffi48 = 14
-    #         ffi48_desc = 'Chems'
-    #     elif (row['sic'] == 3031) or (row['sic'] == 3041) or (3050 <= row['sic'] <= 3053) or (
-    #             3060 <= row['sic'] <= 3069) or (3070 <= row['sic'] <= 3099):
-    #         ffi48 = 15
-    #         ffi48_desc = 'Rubbr'
-    #     elif (2200 <= row['sic'] <= 2284) or (2290 <= row['sic'] <= 2295) or (2297 <= row['sic'] <= 2299) or (
-    #             2393 <= row['sic'] <= 2395) or (2397 <= row['sic'] <= 2399):
-    #         ffi48 = 16
-    #         ffi48_desc = 'Txtls'
-    #     elif (800 <= row['sic'] <= 899) or (2400 <= row['sic'] <= 2439) or (2450 <= row['sic'] <= 2459) or (
-    #             2490 <= row['sic'] <= 2499) or (2660 <= row['sic'] <= 2661) \
-    #             or (2950 <= row['sic'] <= 2952) or (row['sic'] == 3200) or (3210 <= row['sic'] <= 3211) or (
-    #             3240 <= row['sic'] <= 3241) or (3250 <= row['sic'] <= 3259) \
-    #             or (row['sic'] == 3261) or (row['sic'] == 3264) or (3270 <= row['sic'] <= 3275) or (
-    #             3280 <= row['sic'] <= 3281) or (3290 <= row['sic'] <= 3293) \
-    #             or (3295 <= row['sic'] <= 3299) or (3420 <= row['sic'] <= 3433) or (3440 <= row['sic'] <= 3442) or (
-    #             row['sic'] == 3446) or (3448 <= row['sic'] <= 3452) \
-    #             or (3490 <= row['sic'] <= 3499) or (row['sic'] == 3996):
-    #         ffi48 = 17
-    #         ffi48_desc = 'BldMt'
-    #     elif (1500 <= row['sic'] <= 1511) or (1520 <= row['sic'] <= 1549) or (1600 <= row['sic'] <= 1799):
-    #         ffi48 = 18
-    #         ffi48_desc = 'Cnstr'
-    #     elif (row['sic'] == 3300) or (3310 <= row['sic'] <= 3317) or (3320 <= row['sic'] <= 3325) or (
-    #             3330 <= row['sic'] <= 3341) or (3350 <= row['sic'] <= 3357) \
-    #             or (3360 <= row['sic'] <= 3379) or (3390 <= row['sic'] <= 3399):
-    #         ffi48 = 19
-    #         ffi48_desc = 'Steel'
-    #     elif (row['sic'] == 3400) or (3443 <= row['sic'] <= 3444) or (3460 <= row['sic'] <= 3479):
-    #         ffi48 = 20
-    #         ffi48_desc = 'FabPr'
-    #     elif (3510 <= row['sic'] <= 3536) or (row['sic'] == 3538) or (3540 <= row['sic'] <= 3569) \
-    #             or (3580 <= row['sic'] <= 3582) or (3585 <= row['sic'] <= 3586) or (3589 <= row['sic'] <= 3599):
-    #         ffi48 = 21
-    #         ffi48_desc = 'Mach'
-    #     elif (row['sic'] == 3600) or (3610 <= row['sic'] <= 3613) or (3620 <= row['sic'] <= 3621) or (
-    #             3623 <= row['sic'] <= 3629) or (3640 <= row['sic'] <= 3646) \
-    #             or (3648 <= row['sic'] <= 3649) or (row['sic'] == 3660) or (3690 <= row['sic'] <= 3692) or (
-    #             row['sic'] == 3699):
-    #         ffi48 = 22
-    #         ffi48_desc = 'ElcEq'
-    #     elif (row['sic'] == 2296) or (row['sic'] == 2396) or (3010 <= row['sic'] <= 3011) or (row['sic'] == 3537) or (
-    #             row['sic'] == 3647) or (row['sic'] == 3694) \
-    #             or (row['sic'] == 3700) or (3710 <= row['sic'] <= 3711) or (3713 <= row['sic'] <= 3716) or (
-    #             3790 <= row['sic'] <= 3792) or (row['sic'] == 3799):
-    #         ffi48 = 23
-    #         ffi48_desc = 'Autos'
-    #     elif (3720 <= row['sic'] <= 3721) or (3723 <= row['sic'] <= 3725) or (3728 <= row['sic'] <= 3729):
-    #         ffi48 = 24
-    #         ffi48_desc = 'Aero'
-    #     elif (3730 <= row['sic'] <= 3731) or (3740 <= row['sic'] <= 3743):
-    #         ffi48 = 25
-    #         ffi48_desc = 'Ships'
-    #     elif (3760 <= row['sic'] <= 3769) or (row['sic'] == 3795) or (3480 <= row['sic'] <= 3489):
-    #         ffi48 = 26
-    #         ffi48_desc = 'Guns'
-    #     elif (1040 <= row['sic'] <= 1049):
-    #         ffi48 = 27
-    #         ffi48_desc = 'Gold'
-    #     elif (1000 <= row['sic'] <= 1039) or (1050 <= row['sic'] <= 1119) or (1400 <= row['sic'] <= 1499):
-    #         ffi48 = 28
-    #         ffi48_desc = 'Mines'
-    #     elif (1200 <= row['sic'] <= 1299):
-    #         ffi48 = 29
-    #         ffi48_desc = 'Coal'
-    #     elif (row['sic'] == 1300) or (1310 <= row['sic'] <= 1339) or (1370 <= row['sic'] <= 1382) or (
-    #             row['sic'] == 1389) or (2900 <= row['sic'] <= 2912) or (2990 <= row['sic'] <= 2999):
-    #         ffi48 = 30
-    #         ffi48_desc = 'Oil'
-    #     elif (row['sic'] == 4900) or (4910 <= row['sic'] <= 4911) or (4920 <= row['sic'] <= 4925) or (
-    #             4930 <= row['sic'] <= 4932) or (4939 <= row['sic'] <= 4942):
-    #         ffi48 = 31
-    #         ffi48_desc = 'Util'
-    #     elif (row['sic'] == 4800) or (4810 <= row['sic'] <= 4813) or (4820 <= row['sic'] <= 4822) or (
-    #             4830 <= row['sic'] <= 4841) or (4880 <= row['sic'] <= 4892) or (row['sic'] == 4899):
-    #         ffi48 = 32
-    #         ffi48_desc = 'Telcm'
-    #     elif (7020 <= row['sic'] <= 7021) or (7030 <= row['sic'] <= 7033) or (row['sic'] == 7200) or (
-    #             7210 <= row['sic'] <= 7212) or (7214 <= row['sic'] <= 7217) \
-    #             or (7219 <= row['sic'] <= 7221) or (7230 <= row['sic'] <= 7231) or (7240 <= row['sic'] <= 7241) or (
-    #             7250 <= row['sic'] <= 7251) or (7260 <= row['sic'] <= 7299) \
-    #             or (row['sic'] == 7395) or (row['sic'] == 7500) or (7520 <= row['sic'] <= 7549) or (
-    #             row['sic'] == 7600) or (
-    #             row['sic'] == 7620) \
-    #             or (7622 <= row['sic'] <= 7623) or (7629 <= row['sic'] <= 7631) or (7640 <= row['sic'] <= 7641) or (
-    #             7690 <= row['sic'] <= 7699) or (8100 <= row['sic'] <= 8499) \
-    #             or (8600 <= row['sic'] <= 8699) or (8800 <= row['sic'] <= 8899) or (7510 <= row['sic'] <= 7515):
-    #         ffi48 = 33
-    #         ffi48_desc = 'PerSv'
-    #     elif (2750 <= row['sic'] <= 2759) or (row['sic'] == 3993) or (row['sic'] == 7218) or (row['sic'] == 7300) or (
-    #             7310 <= row['sic'] <= 7342) \
-    #             or (7349 <= row['sic'] <= 7353) or (7359 <= row['sic'] <= 7372) or (7374 <= row['sic'] <= 7385) or (
-    #             7389 <= row['sic'] <= 7394) or (7396 <= row['sic'] <= 7397) \
-    #             or (row['sic'] == 7399) or (row['sic'] == 7519) or (row['sic'] == 8700) or (
-    #             8710 <= row['sic'] <= 8713) or (
-    #             8720 <= row['sic'] <= 8721) \
-    #             or (8730 <= row['sic'] <= 8734) or (8740 <= row['sic'] <= 8748) or (8900 <= row['sic'] <= 8911) or (
-    #             8920 <= row['sic'] <= 8999) or (4220 <= row['sic'] <= 4229):
-    #         ffi48 = 34
-    #         ffi48_desc = 'BusSv'
-    #     elif (3570 <= row['sic'] <= 3579) or (3680 <= row['sic'] <= 3689) or (row['sic'] == 3695) or (
-    #             row['sic'] == 7373):
-    #         ffi48 = 35
-    #         ffi48_desc = 'Comps'
-    #     elif (row['sic'] == 3622) or (3661 <= row['sic'] <= 3666) or (3669 <= row['sic'] <= 3679) or (
-    #             row['sic'] == 3810) or (row['sic'] == 3812):
-    #         ffi48 = 36
-    #         ffi48_desc = 'Chips'
-    #     elif (row['sic'] == 3811) or (3820 <= row['sic'] <= 3827) or (3829 <= row['sic'] <= 3839):
-    #         ffi48 = 37
-    #         ffi48_desc = 'LabEq'
-    #     elif (2520 <= row['sic'] <= 2549) or (2600 <= row['sic'] <= 2639) or (2670 <= row['sic'] <= 2699) or (
-    #             2760 <= row['sic'] <= 2761) or (3950 <= row['sic'] <= 3955):
-    #         ffi48 = 38
-    #         ffi48_desc = 'Paper'
-    #     elif (2440 <= row['sic'] <= 2449) or (2640 <= row['sic'] <= 2659) or (3220 <= row['sic'] <= 3221) or (
-    #             3410 <= row['sic'] <= 3412):
-    #         ffi48 = 39
-    #         ffi48_desc = 'Boxes'
-    #     elif (4000 <= row['sic'] <= 4013) or (4040 <= row['sic'] <= 4049) or (row['sic'] == 4100) or (
-    #             4110 <= row['sic'] <= 4121) or (4130 <= row['sic'] <= 4131) \
-    #             or (4140 <= row['sic'] <= 4142) or (4150 <= row['sic'] <= 4151) or (4170 <= row['sic'] <= 4173) or (
-    #             4190 <= row['sic'] <= 4200) \
-    #             or (4210 <= row['sic'] <= 4219) or (4230 <= row['sic'] <= 4231) or (4240 <= row['sic'] <= 4249) or (
-    #             4400 <= row['sic'] <= 4700) or (4710 <= row['sic'] <= 4712) \
-    #             or (4720 <= row['sic'] <= 4749) or (row['sic'] == 4780) or (4782 <= row['sic'] <= 4785) or (
-    #             row['sic'] == 4789):
-    #         ffi48 = 40
-    #         ffi48_desc = 'Trans'
-    #     elif (row['sic'] == 5000) or (5010 <= row['sic'] <= 5015) or (5020 <= row['sic'] <= 5023) or (
-    #             5030 <= row['sic'] <= 5060) or (5063 <= row['sic'] <= 5065) \
-    #             or (5070 <= row['sic'] <= 5078) or (5080 <= row['sic'] <= 5088) or (5090 <= row['sic'] <= 5094) or (
-    #             5099 <= row['sic'] <= 5100) \
-    #             or (5110 <= row['sic'] <= 5113) or (5120 <= row['sic'] <= 5122) or (5130 <= row['sic'] <= 5172) or (
-    #             5180 <= row['sic'] <= 5182) or (5190 <= row['sic'] <= 5199):
-    #         ffi48 = 41
-    #         ffi48_desc = 'Whlsl'
-    #     elif (row['sic'] == 5200) or (5210 <= row['sic'] <= 5231) or (5250 <= row['sic'] <= 5251) or (
-    #             5260 <= row['sic'] <= 5261) or (5270 <= row['sic'] <= 5271) \
-    #             or (row['sic'] == 5300) or (5310 <= row['sic'] <= 5311) or (row['sic'] == 5320) or (
-    #             5330 <= row['sic'] <= 5331) or (row['sic'] == 5334) \
-    #             or (5340 <= row['sic'] <= 5349) or (5390 <= row['sic'] <= 5400) or (5410 <= row['sic'] <= 5412) or (
-    #             5420 <= row['sic'] <= 5469) or (5490 <= row['sic'] <= 5500) \
-    #             or (5510 <= row['sic'] <= 5579) or (5590 <= row['sic'] <= 5700) or (5710 <= row['sic'] <= 5722) or (
-    #             5730 <= row['sic'] <= 5736) or (5750 <= row['sic'] <= 5799) \
-    #             or (row['sic'] == 5900) or (5910 <= row['sic'] <= 5912) or (5920 <= row['sic'] <= 5932) or (
-    #             5940 <= row['sic'] <= 5990) or (5992 <= row['sic'] <= 5995) or (row['sic'] == 5999):
-    #         ffi48 = 42
-    #         ffi48_desc = 'Rtail'
-    #     elif (5800 <= row['sic'] <= 5829) or (5890 <= row['sic'] <= 5899) or (row['sic'] == 7000) or (
-    #             7010 <= row['sic'] <= 7019) or (7040 <= row['sic'] <= 7049) or (row['sic'] == 7213):
-    #         ffi48 = 43
-    #         ffi48_desc = 'Meals'
-    #     elif (row['sic'] == 6000) or (6010 <= row['sic'] <= 6036) or (6040 <= row['sic'] <= 6062) or (
-    #             6080 <= row['sic'] <= 6082) or (6090 <= row['sic'] <= 6100) \
-    #             or (6110 <= row['sic'] <= 6113) or (6120 <= row['sic'] <= 6179) or (6190 <= row['sic'] <= 6199):
-    #         ffi48 = 44
-    #         ffi48_desc = 'Banks'
-    #     elif (row['sic'] == 6300) or (6310 <= row['sic'] <= 6331) or (6350 <= row['sic'] <= 6351) or (
-    #             6360 <= row['sic'] <= 6361) or (6370 <= row['sic'] <= 6379) or (6390 <= row['sic'] <= 6411):
-    #         ffi48 = 45
-    #         ffi48_desc = 'Insur'
-    #     elif (row['sic'] == 6500) or (row['sic'] == 6510) or (6512 <= row['sic'] <= 6515) or (
-    #             6517 <= row['sic'] <= 6532) or (6540 <= row['sic'] <= 6541) \
-    #             or (6550 <= row['sic'] <= 6553) or (6590 <= row['sic'] <= 6599) or (6610 <= row['sic'] <= 6611):
-    #         ffi48 = 46
-    #         ffi48_desc = 'RlEst'
-    #     elif (6200 <= row['sic'] <= 6299) or (row['sic'] == 6700) or (6710 <= row['sic'] <= 6726) or (
-    #             6730 <= row['sic'] <= 6733) or (6740 <= row['sic'] <= 6779) \
-    #             or (6790 <= row['sic'] <= 6795) or (6798 <= row['sic'] <= 6799):
-    #         ffi48 = 47
-    #         ffi48_desc = 'Fin'
-    #     elif (4950 <= row['sic'] <= 4961) or (4970 <= row['sic'] <= 4971) or (4990 <= row['sic'] <= 4991) or (
-    #             row['sic'] == 9999):
-    #         ffi48 = 48
-    #         ffi48_desc = 'Other'
-    #     else:
-    #         ffi48 = np.nan
-    #         ffi48_desc = ''
-    #     return pd.Series({'sic': row['sic'], 'ffi48': ffi48, 'ffi48_desc': ffi48_desc})
-    #
-    # # assign SIC code
-    # sic = db.raw_sql(f"""
-    #             SELECT gvkey, datadate, sich
-    #             FROM comp.funda
-    #             WHERE indfmt='INDL'
-    #             AND datafmt='STD'
-    #             AND popsrc='D'
-    #             AND consol='C'
-    #             AND datadate >= '{start_date}'
-    #         """, date_cols=['datadate'])
-    #
-    # # Join SIC codes on comp3
-    # comp4 = pd.merge(comp3, sic, how='left', on=['gvkey', 'datadate'])
-    # del comp3, sic
-    #
-    # # First use historical Compustat SIC Code
-    # # Then if missing use historical CRSP SIC Code
-    # comp4['sic'] = np.where(comp4['sich'] > 0, comp4['sich'], comp4['siccd'])
-    #
-    # # and adjust some SIC code to fit F&F 48 ind delineation
-    # comp4['sic'] = np.where(
-    #     (comp4['sic'].isin([3990, 9995, 9997])) & (comp4['siccd'] > 0) & (comp4['sic'] != comp4['siccd']), \
-    #     comp4['siccd'], comp4['sic'])
-    # comp4['sic'] = np.where(comp4['sic'].isin([3990, 3999]), 3991, comp4['sic'])
-    # comp4['sic'] = comp4.sic.astype(int)
-    #
-    # # assign the ffi48 function to comp4
-    # _sic = comp4['sic'].unique()
-    # _sicff = pd.DataFrame(_sic).rename(columns={0: 'sic'})
-    # _sicff = _sicff.apply(ffi48, axis=1)
-    # comp4 = pd.merge(comp4, _sicff, how='left', on=['sic'])
-    # del _sic, _sicff
-    #
-    # # keep only records with non-missing bm and ffi48 classification
-    # comp4 = comp4[(comp4['bm'] != np.NaN) & (comp4['ffi48_desc'] != '')]
-    # comp4 = comp4.drop(['sic', 'siccd', 'datadate'], axis=1)
-    # comp4 = comp4.sort_values(['ffi48', 'year'])
-    #
-    # #########################
-    # # Industry BM Average   #
-    # #########################
-    #
-    # # Calculate BM Industry Average Each Period
-    # comp4_tmp = comp4[(comp4['ffi48'] > 0) & (comp4['bm'] >= 0)]
-    # bm_ind = comp4_tmp.groupby(['ffi48', 'year'])['bm'].mean().reset_index().rename(columns={'bm': 'bmind'})
-    # del comp4_tmp
-    # # Calculate Long-Term Industry BtM Average
-    # bm_ind['n'] = bm_ind.groupby(['ffi48'])['year'].cumcount()
-    # bm_ind['sumbm'] = bm_ind.groupby(['ffi48'])['bmind'].cumsum()
-    # bm_ind['bmavg'] = bm_ind['sumbm'] / (bm_ind['n'] + 1)
-    # bm_ind = bm_ind.drop(['n', 'sumbm'], axis=1)
-    #
-    # # Adjust Firm-Specific BtM with Industry Averages
-    # comp5 = pd.merge(comp4, bm_ind, how='left', on=['ffi48', 'year'])
-    # del comp4, bm_ind
-    # comp5['bm_adj'] = comp5['bm'] - comp5['bmavg']
+    comp['year'] = comp['jdate'].dt.year
 
     #########################
     # Momentum Factor       #
@@ -462,9 +341,10 @@ def get_wrds(start_date="1950-12-31", end_date="2024-01-01"):
 
     # Create (12,1) Momentum Factor with at least 6 months of returns
 
-    comp5 = comp3.copy()
+    print(f'Calculating momentum factor')
 
-    _tmp_crsp = crsp_m[['permno', 'date', 'ret', 'me', 'exchcd']].sort_values(['permno', 'date']).set_index('date')
+    _tmp_crsp = comp.copy()[['permno', 'date', 'ret', 'exchange', 'mktcap']].sort_values(['permno', 'date']).set_index(
+        'date')
     # replace missing return with 0
     _tmp_crsp['ret'] = _tmp_crsp['ret'].fillna(0)
     _tmp_crsp['logret'] = np.log(1 + _tmp_crsp['ret'])
@@ -476,7 +356,8 @@ def get_wrds(start_date="1950-12-31", end_date="2024-01-01"):
                        on=['permno', 'date'])
     del _tmp_crsp, _tmp_cumret
     sizemom['mom'] = sizemom.groupby('permno')['cumret'].shift(1)
-    sizemom = sizemom[sizemom['date'].dt.month == 6].drop(['logret', 'cumret'], axis=1).rename(columns={'me': 'size'})
+    sizemom = sizemom[sizemom['date'].dt.month == 6].drop(['logret', 'cumret'], axis=1).rename(
+        columns={'mktcap': 'size'})
 
     #########################
     # CAPM Beta       #
@@ -488,32 +369,29 @@ def get_wrds(start_date="1950-12-31", end_date="2024-01-01"):
     # We estimate correlations using overlapping three-day log excess returns over a five-year period requiring at
     # least 750 non-missing observations
 
-    # Calculate Excess Return
-    crsp_m['exret'] = crsp_m['ret'] - crsp_m['rf']
-    crsp_m['logret'] = np.log(1 + crsp_m['ret'])
-    crsp_m['logret'] = crsp_m['logret'].fillna(0)
-    crsp_m['exret'] = crsp_m['exret'].fillna(0)
+    comp['logret'] = np.log(1 + comp['ret'])
 
     # Calculate Volatility
-    crsp_m['vol'] = crsp_m.groupby('permno')['logret'].rolling(252, min_periods=120).std().reset_index()['logret']
+    comp['volatility'] = comp.groupby('permno')['logret'].rolling(252, min_periods=120).std().reset_index()['logret']
 
     # Calculate Correlation
-    crsp_m['laglogret'] = crsp_m.groupby('permno')['logret'].shift(1)
-    crsp_m['laglogret2'] = crsp_m.groupby('permno')['logret'].shift(2)
-    crsp_m['laglogret3'] = crsp_m.groupby('permno')['logret'].shift(3)
+    comp['laglogret'] = comp.groupby('permno')['logret'].shift(1)
+    comp['laglogret2'] = comp.groupby('permno')['logret'].shift(2)
+    comp['laglogret3'] = comp.groupby('permno')['logret'].shift(3)
 
-    crsp_m['laglogret'] = crsp_m['laglogret'].fillna(0)
-    crsp_m['laglogret2'] = crsp_m['laglogret2'].fillna(0)
-    crsp_m['laglogret3'] = crsp_m['laglogret3'].fillna(0)
-
+    comp['laglogret'] = comp['laglogret'].fillna(0)
+    comp['laglogret2'] = comp['laglogret2'].fillna(0)
+    comp['laglogret3'] = comp['laglogret3'].fillna(0)
 
     #########################
     # NYSE Size Breakpoint  #
     #########################
 
+    print(f'Calculating NYSE size breakpoints')
+
     # Get Size Breakpoints for NYSE firms
     sizemom = sizemom.sort_values(['date', 'permno']).drop_duplicates()
-    nyse = sizemom[sizemom['exchcd'] == 1]
+    nyse = sizemom[sizemom['exchange'] == 'NYSE']
     nyse_break = nyse.groupby(['date'])['size'].describe(percentiles=[.2, .4, .6, .8]).reset_index()
     nyse_break = nyse_break[['date', '20%', '40%', '60%', '80%']] \
         .rename(columns={'20%': 'dec20', '40%': 'dec40', '60%': 'dec60', '80%': 'dec80'})
@@ -539,74 +417,101 @@ def get_wrds(start_date="1950-12-31", end_date="2024-01-01"):
 
     sizemom['group'] = sizemom.apply(size_group, axis=1)
     sizemom['year'] = sizemom['date'].dt.year - 1
-    sizemom = sizemom[['permno', 'year', 'mom', 'group', 'size', 'ret']]
-    comp = pd.merge(comp5, sizemom, how='inner', on=['permno', 'year'])
+    sizemom = sizemom[['permno', 'year', 'mom', 'group', 'ret']]
+    comp = pd.merge(comp, sizemom, how='inner', on=['permno', 'year'])
 
-    del comp5, sizemom, crsp_m
+    del sizemom
 
-    db.close()
+    # Close connection to wrds odbc database
+    wrds.dispose()
+
+    # Save in ipca_test_data/comp.parquet
+    # comp.to_parquet('ipca_test_data/comp.parquet')
 
     return comp
+
 
 def process_compustat(save=False):
     import pandas as pd
     import numpy as np
 
+    # Set .streamlit/config.toml to [global]
+    # dataFrameSerialization = "legacy"
+
     df = get_wrds()
 
+    print(f'Constructing final characteristics')
+
     df = df.fillna(0)
-    # Prerequisites for some of the variables. These are not listed in the original order of Chen et al. (2022), but are necessary for the calculation of some of the variables.
+
     fundamentals = pd.DataFrame()
-    fundamentals['ticker'] = df['tic']
-    fundamentals['date'] = df['rdq']
-    fundamentals['noa'] = ((df['atq'] - df['cheq'] - df['ivaoq']) - (
-            df['atq'] - df['dlcq'] - df['dlttq'] - df['mibq'] - df['pstkq'] - df['ceqq']))
-    fundamentals['prc'] = df['p']
-    fundamentals['shrout'] = df['tso']
-    fundamentals['cap'] = df['prc'] * df['shrout']
+    fundamentals['ticker'] = df['ticker'].astype('str')
+    fundamentals['date'] = df['jdate']
+    fundamentals['year'] = df['jdate'].dt.year
+    fundamentals['noa'] = ((df['at'] - df['che'] - df['ivao']) - (
+            df['at'] - df['dlc'] - df['dltt'] - df['mib'] - df['pstk'] - df['ceq']))
+    fundamentals['prc'] = df['altprc']
+    fundamentals['shrout'] = df['shrout']
+    fundamentals['cap'] = fundamentals['prc'] * fundamentals['shrout']
+    fundamentals['me'] = fundamentals['cap']
     # fundamentals['lme'] = df['lme'] # Not available yet...
-    fundamentals['a2me'] = df['atq'] / (df['tso'] * df['p'])
-    fundamentals['ac'] = (df['actq'] - df['cheq'] - df['lctq'] - df['txpq']) / (
+    fundamentals['a2me'] = df['at'] / (fundamentals['shrout'] * fundamentals['prc'])
+    fundamentals['ac'] = (df['act'] - df['che'] - df['lct'] - df['txp']) / (
             df['be'] / (fundamentals['prc'] * fundamentals['prc']))
-    fundamentals['at'] = df['atq']
-    fundamentals['ato'] = df['saleq'] / fundamentals['noa']
+    fundamentals['at'] = df['at']
+    fundamentals['ato'] = df['sale'] / fundamentals['noa']
     fundamentals['beme'] = df['be'] / (fundamentals['prc'] * fundamentals['shrout'])
     # fundamentals['beta'] = df['beta'] # Not available yet...
-    fundamentals['c'] = df['cheq'] / df['atq']
-    fundamentals['cf'] = (df['niq'] + df['dpq']) / df['atq']
-    fundamentals['cf2p'] = (df['ibq'] + df['dpq'] + df['txdbq']) / (fundamentals['prc'] * fundamentals['prc'])
-    fundamentals['cto'] = df['saleq'] / df['atq']
-    fundamentals['d2a'] = df['dpq'] / df['atq']
-    # fundamentals['d2p'] = df['divamty'] / df['lme']
-    fundamentals['dpi2a'] = (df['ppegtq'] + df['invtq']) / df['atq']
-    fundamentals['e2p'] = df['niq'] / fundamentals['prc']
-    fundamentals['fc2y'] = (df['xsgaq'] + df['xrdq']) / df['saleq']
+    fundamentals['c'] = df['che'] / df['at']
+    fundamentals['cf'] = (df['ni'] + df['dp']) / df['at']
+    fundamentals['cf2p'] = (df['ib'] + df['dp'] + df['txdb']) / (fundamentals['prc'] * fundamentals['shrout'])
+    fundamentals['cto'] = df['sale'] / df['at']
+    fundamentals['d2a'] = df['dp'] / df['at']
+
+    fundamentals['dpi2a'] = (df['ppegt'] + df['inv']) / df['at']
+    fundamentals['e2p'] = df['ni'] / fundamentals['prc']
+    fundamentals['fc2y'] = (df['xsga'] + df['xrd']) / df['sale']
     # fundamentals['IdioVol']  Standard deviation of the residuals from aregression of excess returns on the Fama and French three-factor model. Not available yet...
-    # fundamentals['investment'] = (df['atq'].shift(8) - df['atq'].shift(4)) / df['atq'].shift(8)
-    fundamentals['lev'] = (df['dlttq'] + df['dlcq'] ) / (df['dlttq'] + df['dlcq'] + df['seqq'])
-    fundamentals['lme'] = df['me'].shift(1)
+    fundamentals['lev'] = (df['dltt'] + df['dlc']) / (df['dltt'] + df['dlc'] + df['seq'])
     # fundamentals['lt_rev'] "Cumulative return from 60 months before the return prediction to 13 months before."
-    fundamentals['lturnover'] =  df['vol'].shift(1)
     # fundamentals['lturnover'] Coefficient of the market excess return from the regression on excess returns in the past 60 months (24 months minimum).
-    fundamentals['ni'] = np.log(1+ df['cshoq'].shift(4)*df['ajexq'].shift(4)) - np.log(1+df['cshoq'].shift(8)*df['ajexq'].shift(8))
-    fundamentals['oa'] = (df['actq'] - df['cheq'] - df['lctq'] - df['txpq'] - df['dpq']) / df['atq'].shift(4)
-    fundamentals['ol'] = (df['ltq'] - df['dlcq'] - df['dlttq']) / df['atq'].shift(4)
-    fundamentals['op'] = (df['saleq'] - df['cogsq'] - df['xsgaq'] - df['xintq'] - df['txditcq']) / df['atq'].shift(4)
-    fundamentals['pcm'] = (df['saleq'] - df['cogsq']) / df['saleq']
-    fundamentals['pm'] = df['oiadpq'] / df['saleq']
-    fundamentals['prof'] = (df['saleq'] - df['cogsq']) / df['be']
-    fundamentals['q'] = (df['atq'] + df['me'] - df['ceqq'] - df['txdbq']) / df['atq']
+    fundamentals['pcm'] = (df['sale'] - df['cogs']) / df['sale']
+    fundamentals['pm'] = df['oiadp'] / df['sale']
+    fundamentals['prof'] = (df['sale'] - df['cogs']) / df['be']
+    fundamentals['q'] = (df['at'] + fundamentals['cap'] - df['ceq'] - df['txdb']) / df['at']
     # fundamentals['r2_1'] = df['laglogret']
     fundamentals['r12_2'] = df['mom']
-    fundamentals['rna'] = df['oiadpq'] / fundamentals['noa']
-    fundamentals['roa'] = df['ibq'] / df['atq']
-    fundamentals['roe'] = df['ibq'] / df['be']
-    fundamentals['s2p'] = df['saleq'] / (fundamentals['prc'] * fundamentals['shrout'])
-    fundamentals['sga2s'] = df['xsgaq'] / df['saleq']
+    fundamentals['rna'] = df['oiadp'] / fundamentals['noa']
+    fundamentals['roa'] = df['ib'] / df['at']
+    fundamentals['roe'] = df['ib'] / df['be']
+    fundamentals['s2p'] = df['sale'] / (fundamentals['prc'] * fundamentals['shrout'])
+    fundamentals['sga2s'] = df['xsga'] / df['sale']
+    fundamentals['csho'] = df['csho']
+    fundamentals['ajex'] = df['ajex']
+    fundamentals_lags = (fundamentals[["ticker", "year", "at", "cap", "csho", "ajex"]]
+                         .assign(year=lambda x: x["year"] + 1)
+                         .rename(columns={"at": "at_lag",
+                                          "cap": "lme",
+                                          "csho": "csho_lag",
+                                          "ajex": "ajex_lag"})
+                         )
+    fundamentals = (fundamentals
+                    .merge(fundamentals_lags, how="left", on=["ticker", "year"])
+                    .assign(ni=lambda x: np.log(1 + x["csho"] * x["ajex"]) - np.log(1 + x["csho_lag"] * x["ajex_lag"]))
+                    )
+    fundamentals = fundamentals.replace([np.inf, -np.inf], np.nan)
+    fundamentals.fillna(0, inplace=True)
+    fundamentals['investment'] = (df['at_lag'] - df['at']) / df['at_lag']
+    fundamentals['beta'] = df['beta']
+    fundamentals['oa'] = (df['act'] - df['che'] - df['lct'] - df['txp'] - df['dp']) / df['at_lag']
+    fundamentals['ol'] = (df['lt'] - df['dlc'] - df['dltt']) / df['at_lag']
+    fundamentals['op'] = (df['sale'] - df['cogs'] - df['xsga'] - df['xint'] - df['txditc']) / df['at_lag']
+    # fundamentals['d2p'] = df['divamty'] / df['lme']
 
     fundamentals.fillna(0, inplace=True)
 
     if save:
+        print(f'Saving characteristics')
         import os
         if not os.path.exists('factor_data'):
             os.makedirs('factor_data')
@@ -614,7 +519,3 @@ def process_compustat(save=False):
         return
 
     return fundamentals
-
-
-
-
