@@ -87,6 +87,7 @@ def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
 
     def get_monthly_crsp_data(wrds, start_date, end_date):
         import yfinance as yf
+        from statsmodels.formula.api import ols
 
         crsp_monthly_query = (f"""
         SELECT msf.ticker, msf.permno, msf.mthcaldt AS date, 
@@ -106,6 +107,7 @@ def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
             AND ssih.issuertype in ('ACOR', 'CORP')
         """
                               )
+        print(f'Fetching monthly CRSP data')
         crsp_monthly = (pd.read_sql_query(
             sql=crsp_monthly_query,
             con=wrds,
@@ -177,6 +179,7 @@ def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
                                     .apply(assign_industry)
                                     )
 
+        print(f'Fetching risk free rate and calculating excess returns')
         rf = yf.download("^IRX", start=start_date, end=end_date)["Adj Close"]
         rf = pd.DataFrame(rf.apply(lambda x: (1 + x) ** (1 / 12) - 1))
         # Set Date as datetime
@@ -195,47 +198,35 @@ def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
                         .drop(columns=["rf"])
                         )
 
+        mkt = yf.download("^GSPC", start=start_date, end=end_date)["Adj Close"]
+        mkt = pd.DataFrame(mkt.apply(lambda x: np.log(x)))
+        mkt.index = pd.to_datetime(mkt.index)
+        mkt['jdate'] = mkt.index + MonthEnd(0)
+        mkt.rename(columns={'Adj Close': 'mkt'}, inplace=True)
+        mkt = mkt.groupby('jdate').last()
+        mkt['mkt_ret'] = mkt['mkt'] - mkt['mkt'].shift(1)
+
+        crsp_monthly = (crsp_monthly
+                        .merge(mkt, how="left", on="jdate"))
+
+        print(f'Fetching market returns and calculating betas')
+        # Regress ret on mkt_ret to extract betas
+        _beta = crsp_monthly.copy()[['jdate', 'permno', 'ret', 'mkt_ret']].sort_values(['permno', 'date']).set_index('date')
+        _beta['ret'] = _beta['ret'].fillna(0)
+        _beta['mkt_ret'] = _beta['mkt_ret'].fillna(0)
+        _beta = _beta.groupby('permno').apply(lambda x: pd.Series(ols(x['ret'], x['mkt_ret']).beta)).reset_index()
+        _beta.columns = ['permno', 'beta']
+        crsp_monthly = crsp_monthly.merge(_beta, how='left', on='permno')
+
+
         return crsp_monthly
 
     def get_comp_data(wrds, start_date):
         compustat_query = (f"""
             SELECT 
-            gvkey, 
-            datadate, 
-            seq, 
-            ceq, 
-            at, 
-            lt, 
-            txditc, 
-            txdb, 
-            itcb, 
-            pstkrv, 
-            pstkl, 
-            capx, 
-            oancf, 
-            cogs, 
-            xint, 
-            xsga, 
-            che, 
-            ivao, 
-            dlc, 
-            dltt, 
-            mib, 
-            pstk, 
-            dp, 
-            act, 
-            lct, 
-            txp, 
-            sale, 
-            dvt, 
-            wcapch, 
-            ppegt,
-            ni,
-            ib,
-            xrd,
-            oiadp,
-            ajex,
-            csho
+            gvkey, datadate, seq, ceq, at, lt, txditc, txdb, itcb, pstkrv, 
+            pstkl, capx, oancf, cogs, xint, xsga, che, ivao, dlc, dltt, mib, pstk, 
+            dp, act, lct, txp, sale, dvt, wcapch, ppegt, ni, ib, xrd, oiadp, ajex, csho
             FROM comp.funda
             WHERE indfmt = 'INDL' 
             AND datafmt = 'STD' 
@@ -243,6 +234,8 @@ def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
             AND datadate BETWEEN '{start_date}' AND '{end_date}'
             """
                            )
+
+        print(f'Fetching Compustat data')
 
         compustat = pd.read_sql_query(
             sql=compustat_query,
@@ -317,6 +310,7 @@ def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
 
     ccmxpf_linktable = get_ccm_data(wrds)
 
+    print(f'Merging CRSP and Compustat data')
 
     ccm_links = (crsp_monthly
                  .merge(ccmxpf_linktable, how="inner", on="permno")
@@ -344,6 +338,8 @@ def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
     #########################
 
     # Create (12,1) Momentum Factor with at least 6 months of returns
+
+    print(f'Calculating momentum factor')
 
     _tmp_crsp = comp.copy()[['permno', 'date', 'ret', 'exchange', 'mktcap']].sort_values(['permno', 'date']).set_index('date')
     # replace missing return with 0
@@ -386,6 +382,8 @@ def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
     #########################
     # NYSE Size Breakpoint  #
     #########################
+
+    print(f'Calculating NYSE size breakpoints')
 
     # Get Size Breakpoints for NYSE firms
     sizemom = sizemom.sort_values(['date', 'permno']).drop_duplicates()
@@ -436,7 +434,11 @@ def process_compustat(save=False):
     # Set .streamlit/config.toml to [global]
     # dataFrameSerialization = "legacy"
 
+
+
     df = get_wrds()
+
+    print(f'Constructing final characteristics')
 
     df = df.fillna(0)
 
@@ -498,6 +500,7 @@ def process_compustat(save=False):
     fundamentals = fundamentals.replace([np.inf, -np.inf], np.nan)
     fundamentals.fillna(0, inplace=True)
     fundamentals['investment'] = (df['at_lag'] - df['at']) / df['at_lag']
+    fundamentals['beta'] = df['beta']
     fundamentals['oa'] = (df['act'] - df['che'] - df['lct'] - df['txp'] - df['dp']) / df['at_lag']
     fundamentals['ol'] = (df['lt'] - df['dlc'] - df['dltt']) / df['at_lag']
     fundamentals['op'] = (df['sale'] - df['cogs'] - df['xsga'] - df['xint'] - df['txditc']) / df['at_lag']
@@ -506,6 +509,7 @@ def process_compustat(save=False):
     fundamentals.fillna(0, inplace=True)
 
     if save:
+        print(f'Saving characteristics')
         import os
         if not os.path.exists('factor_data'):
             os.makedirs('factor_data')
