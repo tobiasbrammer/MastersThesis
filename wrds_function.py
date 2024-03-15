@@ -1,6 +1,6 @@
 # Get WRDS data for Instrumented PCA
 def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
-    # ToDo: Figure out why there are so many rows. Seems like some part of the code uses daily date...
+    # ToDo: Figure out why there are so many rows. Seems like some part of the code uses daily data...
     from pandas.tseries.offsets import MonthEnd
     import pandas as pd
     import numpy as np
@@ -105,7 +105,7 @@ def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
         ).assign(shrout=lambda x: x["shrout"] * 1000)
 
         crsp_monthly = crsp_monthly.assign(
-            mktcap=lambda x: x["shrout"] * x["altprc"] / 1000000
+            mktcap=lambda x: x["shrout"] * x["altprc"]
         ).assign(mktcap=lambda x: x["mktcap"].replace(0, np.nan))
 
         crsp_monthly["jdate"] = crsp_monthly["date"] + MonthEnd(0)
@@ -131,37 +131,11 @@ def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
 
         crsp_monthly["exchange"] = crsp_monthly["primaryexch"].apply(assign_exchange)
 
-        def assign_industry(siccd):
-            if 1 <= siccd <= 999:
-                return "Agriculture"
-            elif 1000 <= siccd <= 1499:
-                return "Mining"
-            elif 1500 <= siccd <= 1799:
-                return "Construction"
-            elif 2000 <= siccd <= 3999:
-                return "Manufacturing"
-            elif 4000 <= siccd <= 4899:
-                return "Transportation"
-            elif 4900 <= siccd <= 4999:
-                return "Utilities"
-            elif 5000 <= siccd <= 5199:
-                return "Wholesale"
-            elif 5200 <= siccd <= 5999:
-                return "Retail"
-            elif 6000 <= siccd <= 6799:
-                return "Finance"
-            elif 7000 <= siccd <= 8999:
-                return "Services"
-            elif 9000 <= siccd <= 9999:
-                return "Public"
-            else:
-                return "Missing"
-
-        crsp_monthly["industry"] = crsp_monthly["siccd"].apply(assign_industry)
-
         print(f"Fetching risk free rate and calculating excess returns")
         rf = yf.download("^IRX", start=start_date, end=end_date)["Adj Close"]
-        rf = pd.DataFrame(rf.apply(lambda x: (1 + x) ** (1 / 12) - 1))
+        rf = pd.DataFrame(
+            rf.apply(lambda x: (1 + x) ** (1 / 12) - 1)
+        )  # Monthly risk free rate.
         # Set Date as datetime
         rf.index = pd.to_datetime(rf.index)
         # Add a column with the end of month date
