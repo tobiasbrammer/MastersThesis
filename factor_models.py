@@ -10,6 +10,60 @@ from sklearn.linear_model import LinearRegression
 import warnings
 import yfinance as yf
 
+warnings.filterwarnings("ignore", category=FutureWarning, module="yfinance")
+
+"""
+Prerequisites 
+"""
+
+
+# Need this to run code from super-computer
+def get_daily_data():
+    """
+    Returns daily excess returns, adjusted close, and volume
+    """
+
+    # Get tickers
+    # tickers = pd.read_parquet('daily.parquet')['ticker'].unique()
+    tickers = pd.read_csv("tickers.csv")["ticker"].unique()
+    risk_free = get_risk_free_rate()
+
+    # Get data
+    data = []
+    for tick in tqdm(tickers, desc="Downloading data", miniters=10):
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=FutureWarning)
+            df = yf.download(tick, start="1998-12-31", end="2024-01-01", progress=False)
+        df["ticker"] = tick
+        df["return"] = (
+            np.log(df["Adj Close"]) - np.log(df["Adj Close"].shift(1)) - risk_free
+        )
+        data.append(df[["ticker", "Adj Close", "Volume", "return"]])
+
+    data = pd.concat(data)
+    data = data[~(data["ticker"].isna())]
+    data = data.pivot(columns="ticker")
+
+    # Save data
+    data.to_parquet("daily_data.parquet")
+
+    return data
+
+
+def de_annualize(annual_rate, periods=365):
+    return (1 + annual_rate) ** (1 / periods) - 1
+
+
+def get_risk_free_rate():
+    # download 3-month us treasury bills rates
+    annualized = yf.download("^IRX", start="1998-12-31", end="2024-01-01")["Adj Close"]
+
+    # de-annualize
+    daily = annualized.apply(de_annualize)
+
+    # create dataframe
+    return daily
+
 
 """
 Run factor models
@@ -22,10 +76,10 @@ def run_factor_models():
     sizeCovarianceWindow = 252
     sizeWindow = 60
     intitialOOSYear = 2000
-    df = pd.read_parquet('daily_data.parquet')
+    df = pd.read_parquet("daily_data.parquet")
 
     # Fix NaN values
-    df = df['return']
+    df = df["return"]
     nan_percent = df.isna().mean() * 100
     drop_tickers = list(nan_percent[nan_percent > 0.16].index)
     df.drop(drop_tickers, axis=1, inplace=True)
@@ -53,7 +107,9 @@ def pca(factor_list: list, sizeCovarianceWindow, sizeWindow, intitialOOSYear, df
     start_time = time.time()
 
     # Making sure all assets
-    assets_to_consider = np.count_nonzero(~np.isnan(Rdaily[firstOOSDailyIdx:, :]), axis=0) >= 30
+    assets_to_consider = (
+        np.count_nonzero(~np.isnan(Rdaily[firstOOSDailyIdx:, :]), axis=0) >= 30
+    )
     Ntilde = np.sum(assets_to_consider)
     print(f"Number of assets to consider: {Ntilde} out of {N}")
 
@@ -61,59 +117,100 @@ def pca(factor_list: list, sizeCovarianceWindow, sizeWindow, intitialOOSYear, df
 
     for factor in factor_list:
         residualsOOS = np.zeros((T - firstOOSDailyIdx, N), dtype=float)
-        residualMatricesOOS = np.zeros((T - firstOOSDailyIdx, Ntilde, Ntilde), dtype=np.float32)
+        residualMatricesOOS = np.zeros(
+            (T - firstOOSDailyIdx, Ntilde, Ntilde), dtype=np.float32
+        )
 
         for t in tqdm(range(T - firstOOSDailyIdx), miniters=25):
 
             # ToDo: They drop the asset if it has a zero return in the period, but nearly all our assets have a zero
             # ToDo: return so I'll ignore it for now (change == 5670 to == 0 to change back)
             idxsSelected = ~np.any(
-                Rdaily[(t + firstOOSDailyIdx - sizeCovarianceWindow + 1):(t + firstOOSDailyIdx + 1), :] == 5670,
-                axis=0).ravel()
+                Rdaily[
+                    (t + firstOOSDailyIdx - sizeCovarianceWindow + 1) : (
+                        t + firstOOSDailyIdx + 1
+                    ),
+                    :,
+                ]
+                == 5670,
+                axis=0,
+            ).ravel()
 
             if factor == 0:
-                residualsOOS[t:(t + 1), idxsSelected] = Rdaily[(t + firstOOSDailyIdx):(t + firstOOSDailyIdx + 1),
-                                                        idxsSelected]
+                residualsOOS[t : (t + 1), idxsSelected] = Rdaily[
+                    (t + firstOOSDailyIdx) : (t + firstOOSDailyIdx + 1), idxsSelected
+                ]
             else:
-                res_cov_window = Rdaily[(t + firstOOSDailyIdx - sizeCovarianceWindow):(t + firstOOSDailyIdx),
-                                 idxsSelected]
+                res_cov_window = Rdaily[
+                    (t + firstOOSDailyIdx - sizeCovarianceWindow) : (
+                        t + firstOOSDailyIdx
+                    ),
+                    idxsSelected,
+                ]
                 res_mean = np.mean(res_cov_window, axis=0, keepdims=True)
-                res_vol = np.sqrt(np.mean((res_cov_window - res_mean) ** 2, axis=0, keepdims=True))
+                res_vol = np.sqrt(
+                    np.mean((res_cov_window - res_mean) ** 2, axis=0, keepdims=True)
+                )
                 res_normalized = (res_cov_window - res_mean) / res_vol
-                corr = np.dot(res_normalized.T, res_normalized)  # (x_1 - x_1_mean) * (x_2 - X_2_mean) / std_1 * std_2
+                corr = np.dot(
+                    res_normalized.T, res_normalized
+                )  # (x_1 - x_1_mean) * (x_2 - X_2_mean) / std_1 * std_2
                 eigenvalues, eigenvectors = np.linalg.eig(corr)
                 temp = np.argpartition(-eigenvalues, factor)
                 idxs = temp[:factor]
-                loadings = eigenvectors[:, idxs].real  # Takes eigenvector corresponding to factor largest eigenvalues
+                loadings = eigenvectors[
+                    :, idxs
+                ].real  # Takes eigenvector corresponding to factor largest eigenvalues
                 factors = np.dot(res_cov_window[-sizeWindow:, :] / res_vol, loadings)
-                DayFactors = np.dot(Rdaily[t + firstOOSDailyIdx, idxsSelected] / res_vol, loadings)
+                DayFactors = np.dot(
+                    Rdaily[t + firstOOSDailyIdx, idxsSelected] / res_vol, loadings
+                )
                 old_loadings = loadings
-                regr = LinearRegression(fit_intercept=False, n_jobs=-1).fit(factors, res_cov_window[-sizeWindow:, :])
+                regr = LinearRegression(fit_intercept=False, n_jobs=-1).fit(
+                    factors, res_cov_window[-sizeWindow:, :]
+                )
                 loadings = regr.coef_
-                residuals = Rdaily[t + firstOOSDailyIdx, idxsSelected] - DayFactors.dot(loadings.T)
-                residualsOOS[t:(t + 1), idxsSelected] = residuals
+                residuals = Rdaily[t + firstOOSDailyIdx, idxsSelected] - DayFactors.dot(
+                    loadings.T
+                )
+                residualsOOS[t : (t + 1), idxsSelected] = residuals
 
                 Nprime = len(res_cov_window[-1:, :].ravel())
                 MatrixFull = np.zeros((N, N))
                 # MatrixReduced = I - 1 / res_vol * weights * beta.T  (equation 1 in DLSA)
-                MatrixReduced = (np.eye(Nprime) - np.diag(1 / res_vol.squeeze()) @ old_loadings @ loadings.T)
-                idxsSelected2 = idxsSelected.reshape((N, 1)) @ idxsSelected.reshape((1, N))
+                MatrixReduced = (
+                    np.eye(Nprime)
+                    - np.diag(1 / res_vol.squeeze()) @ old_loadings @ loadings.T
+                )
+                idxsSelected2 = idxsSelected.reshape((N, 1)) @ idxsSelected.reshape(
+                    (1, N)
+                )
                 MatrixFull[idxsSelected2] = MatrixReduced.ravel()
                 residuals2 = res_cov_window[-1:, :] @ MatrixReduced
 
-                residualMatricesOOS[t:(t + 1)] = MatrixFull[assets_to_consider][:, assets_to_consider].T
+                residualMatricesOOS[t : (t + 1)] = MatrixFull[assets_to_consider][
+                    :, assets_to_consider
+                ].T
 
         np.nan_to_num(residualsOOS, copy=False)
         np.nan_to_num(residualMatricesOOS, copy=False)
 
         print(f"Finished for factor {factor}")
 
-        np.save(os.path.join(os.getcwd() + "/factor_outputs",
-                             f'OOSResidualsmatrix_PCA_factor{factor}_rollingwindow_{sizeWindow}.npy'),
-                residualMatricesOOS)
-        np.save(os.path.join(os.getcwd() + "/factor_outputs",
-                             f'OOSResiduals_PCA_factor{factor}_rollingwindow_{sizeWindow}.npy'),
-                residualsOOS)
+        np.save(
+            os.path.join(
+                os.getcwd() + "/factor_outputs",
+                f"OOSResidualsmatrix_PCA_factor{factor}_rollingwindow_{sizeWindow}.npy",
+            ),
+            residualMatricesOOS,
+        )
+        np.save(
+            os.path.join(
+                os.getcwd() + "/factor_outputs",
+                f"OOSResiduals_PCA_factor{factor}_rollingwindow_{sizeWindow}.npy",
+            ),
+            residualsOOS,
+        )
 
         print(f"Took {(time.time() - start_time) / 60} minutes to run PCA")
 
@@ -124,12 +221,14 @@ def pca(factor_list: list, sizeCovarianceWindow, sizeWindow, intitialOOSYear, df
 IPCA
 """
 
+
 def run_ipca():
     import wrds_function
+
     print("Loading characteristics data")
     if not os.path.exists("factor_data/MonthlyData.parquet"):
         wrds_function.process_compustat(save=True)
-    MonthlyData = pd.read_parquet('factor_data/MonthlyData.parquet')
+    MonthlyData = pd.read_parquet("factor_data/MonthlyData.parquet")
     print("Loading daily returns")
     print("Preprocessing monthly characteristics data")
     preprocessMonthlyData(MonthlyData, normalizeCharacteristics=True)
@@ -138,14 +237,14 @@ def run_ipca():
     preprocessDailyReturns()
     print("Initializing IPCA factor model")
     ipca = IPCA(logdir=os.path.join("residuals-new", "ipca_normalized"))
-    for capProportion in [0.001]:  # , 0.001]:
+    for capProportion in [0.01]:  # , 0.001]:
         for sizeWindow in [4 * 12]:  # 15*12]:
             print(
                 f"Running IPCA for window size {sizeWindow}, cap proportion {capProportion}"
             )
             ipca.DailyOOSRollingWindow(
-                listFactors=[3, 10], # [0, 1, 3, 5, 8, 10, 15]
-                initialMonths=210,
+                listFactors=[0, 1, 3, 5, 8, 10, 15],  # [0, 1, 3, 5, 8, 10, 15]
+                initialMonths=36,  # 210
                 sizeWindow=sizeWindow,
                 CapProportion=capProportion,
                 maxIter=1000,
@@ -161,6 +260,7 @@ def run_ipca():
             )
     return
 
+
 def get_sharpe_tangencyPortfolio(df):  # returns has shape TxN
     if df.shape[1] == 1:
         return np.abs(np.mean(df)) / np.std(df)
@@ -170,12 +270,11 @@ def get_sharpe_tangencyPortfolio(df):  # returns has shape TxN
         return float(np.sqrt(mean_ret @ np.linalg.solve(cov_ret, mean_ret.T)))
 
 
-
 def preprocessMonthlyData(
-        df,
-        normalizeCharacteristics=True,
-        logdir=os.getcwd(),
-        name="factor_data/MonthlyDataNormalized.npz",
+    df,
+    normalizeCharacteristics=True,
+    logdir=os.getcwd(),
+    name="factor_data/MonthlyDataNormalized.npz",
 ):
     org_df = df.copy()
     if normalizeCharacteristics:
@@ -184,15 +283,17 @@ def preprocessMonthlyData(
         # Set index from date and ticker
         df.index = pd.MultiIndex.from_frame(df[["date", "ticker"]])
         # Omit ticker and date new df
-        _df = df.drop(columns=['date', 'ticker'])
+        _df = df.drop(columns=["date", "ticker"])
         # Group _df by date and 'normalize'
-        _df = _df.groupby('date').apply(lambda x: x.rank(method="first") / x.count() - 0.5) # DLSA does it differently
+        _df = _df.groupby("date").apply(
+            lambda x: x.rank(method="first") / x.count() - 0.5
+        )  # DLSA does it differently
         df = _df.copy()
     else:
         name = name.replace("Normalized.npz", "Unnormalized.npz")
         df.reset_index(inplace=True, drop=True)
         df.index = pd.MultiIndex.from_frame(org_df[["date", "ticker"]])
-        df = df.drop(columns=['date', 'ticker'])
+        df = df.drop(columns=["date", "ticker"])
 
     savepath = os.path.join(logdir, name)
     if os.path.exists(savepath):
@@ -215,10 +316,11 @@ def preprocessMonthlyData(
 
 
 def preprocessDailyReturns(
-        logdir=os.getcwd(),
-        name="daily_data.npz",
+    logdir=os.getcwd(),
+    name="daily_data.npz",
 ):
     from functions import get_daily_data
+
     savepath = os.path.join(logdir, name)
     if os.path.exists(savepath):
         print("Daily returns already processed; skipping")
@@ -238,7 +340,9 @@ def preprocessDailyReturns(
     ticker = df.index.levels[1].to_numpy()
 
     # restrict returns data to only cover ticker that we have characteristics data for
-    tmask = np.load(os.path.join(logdir, "factor_data/MonthlyDataTickers.npy"), allow_pickle=True)
+    tmask = np.load(
+        os.path.join(logdir, "factor_data/MonthlyDataTickers.npy"), allow_pickle=True
+    )
     data = data[:, np.isin(ticker, tmask)]
     ticker = tmask
 
@@ -248,13 +352,13 @@ def preprocessDailyReturns(
 
 class IPCA:
     def __init__(
-            self,
-            individual_feature_dim=33,
-            logdir=os.getcwd(),
-            debug=False,
-            pathMonthlyData="factor_data/MonthlyDataNormalized.npz",
-            pathDailyData="daily_data.npz",
-            pathMonthlyDataUnnormalized="factor_data/MonthlyDataUnnormalized.npz",
+        self,
+        individual_feature_dim=33,
+        logdir=os.getcwd(),
+        debug=True,
+        pathMonthlyData="factor_data/MonthlyDataNormalized.npz",
+        pathDailyData="daily_data.npz",
+        pathMonthlyDataUnnormalized="factor_data/MonthlyDataUnnormalized.npz",
     ):
         self._individual_feature_dim = (
             individual_feature_dim  # this is the number of characteristics, L
@@ -266,13 +370,15 @@ class IPCA:
 
         monthlyData = np.load(pathMonthlyData, allow_pickle=True)
         dailyData = np.load(pathDailyData, allow_pickle=True)
-        self.monthlyData = np.nan_to_num(monthlyData['data'])
+        self.monthlyData = np.nan_to_num(monthlyData["data"])
         self.dailyData = dailyData
         self.monthlyDataUnnormalized = np.load(
             pathMonthlyDataUnnormalized, allow_pickle=True
         )["data"]
         # Extract the market cap
-        self.monthlyCaps = self.monthlyData[:, :, 6]
+        self.monthlyCaps = self.monthlyData[
+            :, :, 6
+        ]  # ToDo: Ensure correct column index.
 
         self.dailyDates = pd.to_datetime(dailyData["date"])
         self.monthlyDates = pd.to_datetime(monthlyData["date"])
@@ -281,7 +387,7 @@ class IPCA:
         self.weighted = False
 
     def _step_factor(
-            self, R_list, I_list, Gamma, calculate_residual=False, startIndex=0
+        self, R_list, I_list, Gamma, calculate_residual=False, startIndex=0
     ):  # I are the characteristics Z in the paper
         f_list = []
         if calculate_residual:
@@ -387,11 +493,11 @@ class IPCA:
             )
 
     def compute_sparse_residuals(
-            self,
-            full_residuals_month,
-            beta_month,
-            R_month_clean,
-            sparsity_quantile_threshold=0.01,
+        self,
+        full_residuals_month,
+        beta_month,
+        R_month_clean,
+        sparsity_quantile_threshold=0.01,
     ):
         """
         Computes a set of sparse residuals closest to those in full_residuals_month by
@@ -451,7 +557,7 @@ class IPCA:
         # (1) do hard thresholding
         eye = np.identity(beta_month.shape[0])
         proj = (
-                eye - beta_month @ np.linalg.pinv(beta_month.T @ beta_month) @ beta_month.T
+            eye - beta_month @ np.linalg.pinv(beta_month.T @ beta_month) @ beta_month.T
         )
         # thresholding should only be done wrt observed (nonzero) returns' indices' weights,
         # so we set columns of proj to zero if more than half of the respective return column is missing
@@ -518,18 +624,18 @@ class IPCA:
         Currently, only implements equal observation volatility weighting.
         """
         # Force mask to match length of dailyDate
-        mask2 = mask[:, 0:self.dailyData['data'].shape[1]] # ToDo: This is a hack.
+        mask2 = mask[:, 0 : self.dailyData["data"].shape[1]]  # ToDo: This is a hack.
         weight_matrices = []
         for month in range(len(self.monthlyDates)):
             if month == 0:
                 idxs_days_month = self.dailyDates <= self.monthlyDates[0]
             else:
                 idxs_days_month = (self.dailyDates > self.monthlyDates[month - 1]) & (
-                        self.dailyDates <= self.monthlyDates[month]
+                    self.dailyDates <= self.monthlyDates[month]
                 )
             rmonth = self.dailyData["data"][:, mask2[month, :]][
-                     idxs_days_month, :
-                     ]  # TtxNt matrix
+                idxs_days_month, :
+            ]  # TtxNt matrix
             nans_per_col = np.count_nonzero(np.isnan(rmonth), axis=0)
             insufficient_data_mask = nans_per_col >= np.round(0.9 * rmonth.shape[0])
             vols = np.nanvar(rmonth, axis=0)  # * rmonth.shape[0]  # Nt long vector
@@ -545,34 +651,34 @@ class IPCA:
     # SizeWindow must divide  = months of Data - training months
 
     def DailyOOSRollingWindow(
-            self,
-            save=True,
-            weighted=False,
-            listFactors=list(range(1, 21)),
-            maxIter=1024,
-            printOnConsole=True,
-            printFreq=100,
-            tol=1e-02,
-            initialMonths=35 * 12,
-            sizeWindow=1 * 12, # ToDo: Original value was 15*12
-            CapProportion=0.001,
-            save_beta=False,
-            save_gamma=False,
-            save_rmonth=False,
-            save_mask=False,
-            save_sparse_weights_month=False,
-            skip_oos=False,
-            reestimationFreq=12,
+        self,
+        save=True,
+        weighted=False,
+        listFactors=list(range(1, 21)),
+        maxIter=1024,
+        printOnConsole=True,
+        printFreq=100,
+        tol=1e-02,
+        initialMonths=35 * 12,
+        sizeWindow=1 * 12,  # ToDo: Original value was 15*12
+        CapProportion=0.001,
+        save_beta=False,
+        save_gamma=False,
+        save_rmonth=False,
+        save_mask=False,
+        save_sparse_weights_month=False,
+        skip_oos=False,
+        reestimationFreq=12,
     ):
         # ToDo: monthlyData loads 447 tickers, but dailyData loads 444 tickers. This is a problem.
-        R = self.monthlyData[:, :, 0] #
+        R = self.monthlyData[:, :, 0]  #
         # Replace NaNs with zeros
-        R[np.isnan(R)] = 0 # ToDo: Test
-        I = self.monthlyData[:, :, 1:] #
-        I[np.isnan(I)] = 0 # ToDo: Test
+        R[np.isnan(R)] = 0  # ToDo: Test
+        I = self.monthlyData[:, :, 1:]  #
+        I[np.isnan(I)] = 0  # ToDo: Test
         cap_chosen_idxs = (
-                self.monthlyCaps / np.nansum(self.monthlyCaps, axis=1, keepdims=True)
-                >= CapProportion * 0.01
+            self.monthlyCaps / np.nansum(self.monthlyCaps, axis=1, keepdims=True)
+            >= CapProportion * 0.01
         )
         mask = (~np.isnan(R)) * cap_chosen_idxs
         self.mask = mask
@@ -585,8 +691,8 @@ class IPCA:
         R_reshape = np.expand_dims(R[mask], axis=1)
         I_reshape = I[mask]
         splits = np.sum(mask, axis=1).cumsum()[
-                 :-1
-                 ]  # np.sum(mask, axis=1) how many stocks we have per year; the other cumukatively except for the last one
+            :-1
+        ]  # np.sum(mask, axis=1) how many stocks we have per year; the other cumukatively except for the last one
         R_list = np.split(R_reshape, splits)
         I_list = np.split(I_reshape, splits)
         self.R_list = R_list
@@ -601,13 +707,17 @@ class IPCA:
         firstOOSDailyIdx = np.argmax(
             self.dailyDates
             >= (
-                    pd.to_datetime(datetime.datetime(self.dailyDates.year[0], self.dailyDates.month[0], 1))
-                    + pd.DateOffset(months=initialMonths)
+                pd.to_datetime(
+                    datetime.datetime(
+                        self.dailyDates.year[0], self.dailyDates.month[0], 1
+                    )
+                )
+                + pd.DateOffset(months=initialMonths)
             )
         )
         print(f"firstidx {firstOOSDailyIdx}")
         print(f"self.dailyData.shape[0] {self.dailyData['data'].shape[0]}")
-        Rdaily = self.dailyData['data'][firstOOSDailyIdx:, :]
+        Rdaily = self.dailyData["data"][firstOOSDailyIdx:, :]
         sharpesFactors = np.zeros(len(listFactors))
         counter = 0
 
@@ -621,7 +731,7 @@ class IPCA:
         #      )
         #  )
         assetsToConsider = (
-                np.count_nonzero(DataTrain, axis=0) >= 30
+            np.count_nonzero(DataTrain, axis=0) >= 30
         )  # chooses stocks which have at least #lookback non-missing observations in all the training time
         print(np.where(assetsToConsider))
         print(f"sum a2c {np.sum(assetsToConsider)}")
@@ -631,14 +741,16 @@ class IPCA:
         T, N = Rdaily.shape
         print(f"N {N} Ntilde {Ntilde}")
         superMask = np.count_nonzero(mask[initialMonths - 1 :], axis=0) >= 1
-        superMask = superMask[0:Rdaily.shape[1]] # ToDo: This is a hack.
+        superMask = superMask[0 : Rdaily.shape[1]]  # ToDo: This is a hack.
         Nsupertilde = np.sum(
             superMask
         )  # the maximum assets that are going to be involved in the interesting residuals
         print(f"superMask {superMask.shape} {Nsupertilde} {len(superMask)}")
         np.save("residuals-new/super_mask.npy", superMask)
 
-        if not os.path.isdir(self._logdir + "_stuff"): # ToDo: No idea why this is necessary.
+        if not os.path.isdir(
+            self._logdir + "_stuff"
+        ):  # ToDo: No idea why this is necessary.
             try:
                 os.mkdir(self._logdir + "_stuff")
             except Exception as e:
@@ -657,14 +769,16 @@ class IPCA:
             # WeightsFactors = np.zeros((T,N,N))
             # WeightsSparseFactors = np.zeros((T,N,N))
             # Force mask to match length of dailyDate
-            mask2 = mask[:, 0:Rdaily.shape[1]] # ToDo: This is a hack.
+            mask2 = mask[:, 0 : Rdaily.shape[1]]  # ToDo: This is a hack.
             if nFactors == 0:
                 for month in range((initialMonths), R.shape[0]):
                     idxs_days_month = (
-                                              self.dailyDates[firstOOSDailyIdx:]
-                                              > self.monthlyDates[month - 1]
-                                      ) & (self.dailyDates[firstOOSDailyIdx:] <= self.monthlyDates[month])
-                    R_month = Rdaily[:, mask2[month - 1, :]][idxs_days_month, :]  # TxN # ToDo: IndexError: boolean index did not match indexed array along dimension 1; dimension is 444 but corresponding boolean dimension is 447
+                        self.dailyDates[firstOOSDailyIdx:]
+                        > self.monthlyDates[month - 1]
+                    ) & (self.dailyDates[firstOOSDailyIdx:] <= self.monthlyDates[month])
+                    R_month = Rdaily[:, mask2[month - 1, :]][
+                        idxs_days_month, :
+                    ]  # TxN # ToDo: IndexError: boolean index did not match indexed array along dimension 1; dimension is 444 but corresponding boolean dimension is 447
 
                     # change missing values to zeros to exclude them from calculation
                     R_month_clean = R_month.copy()
@@ -688,30 +802,30 @@ class IPCA:
                         gamma_path = os.path.join(
                             self._logdir + "_stuff",
                             f"gamma_{nFactors}_factors_{initialMonths}_initialMonths_{sizeWindow}_window_{reestimationFreq}_reestimationFreq_{CapProportion}_cap_{nWindow}.npy",
-                            )
+                        )
                         if os.path.isfile(gamma_path) and not save_gamma:
                             Gamma = np.load(gamma_path)
                             self._Gamma = Gamma
                         else:
                             f_list = self._initial_factors(
                                 R_list[
-                                (
+                                    (
                                         initialMonths
                                         + nWindow * reestimationFreq
                                         - sizeWindow
-                                ) : (initialMonths + nWindow * reestimationFreq)
+                                    ) : (initialMonths + nWindow * reestimationFreq)
                                 ],
                                 I_list[
-                                (
+                                    (
                                         initialMonths
                                         + nWindow * reestimationFreq
                                         - sizeWindow
-                                ) : (initialMonths + nWindow * reestimationFreq)
+                                    ) : (initialMonths + nWindow * reestimationFreq)
                                 ],
                                 nFactors,
                                 startIndex=initialMonths
-                                           + nWindow * reestimationFreq
-                                           - sizeWindow,
+                                + nWindow * reestimationFreq
+                                - sizeWindow,
                             )
                             self._Gamma = np.zeros(
                                 (self._individual_feature_dim, nFactors)
@@ -720,44 +834,44 @@ class IPCA:
                             while nIter < maxIter:
                                 Gamma = self._step_gamma(
                                     R_list[
-                                    (
+                                        (
                                             initialMonths
                                             + nWindow * reestimationFreq
                                             - sizeWindow
-                                    ) : (initialMonths + nWindow * reestimationFreq)
+                                        ) : (initialMonths + nWindow * reestimationFreq)
                                     ],
                                     I_list[
-                                    (
+                                        (
                                             initialMonths
                                             + nWindow * reestimationFreq
                                             - sizeWindow
-                                    ) : (initialMonths + nWindow * reestimationFreq)
+                                        ) : (initialMonths + nWindow * reestimationFreq)
                                     ],
                                     f_list,
                                     nFactors,
                                     startIndex=initialMonths
-                                               + nWindow * reestimationFreq
-                                               - sizeWindow,
+                                    + nWindow * reestimationFreq
+                                    - sizeWindow,
                                 )
                                 f_list, _ = self._step_factor(
                                     R_list[
-                                    (
+                                        (
                                             initialMonths
                                             + nWindow * reestimationFreq
                                             - sizeWindow
-                                    ) : (initialMonths + nWindow * reestimationFreq)
+                                        ) : (initialMonths + nWindow * reestimationFreq)
                                     ],
                                     I_list[
-                                    (
+                                        (
                                             initialMonths
                                             + nWindow * reestimationFreq
                                             - sizeWindow
-                                    ) : (initialMonths + nWindow * reestimationFreq)
+                                        ) : (initialMonths + nWindow * reestimationFreq)
                                     ],
                                     Gamma,
                                     startIndex=initialMonths
-                                               + nWindow * reestimationFreq
-                                               - sizeWindow,
+                                    + nWindow * reestimationFreq
+                                    - sizeWindow,
                                 )
                                 nIter += 1
                                 dGamma = np.max(np.abs(self._Gamma - Gamma))
@@ -775,7 +889,7 @@ class IPCA:
                         gamma_path = os.path.join(
                             self._logdir + "_stuff",
                             f"gamma_{nFactors}_factors_{initialMonths}_initialMonths_{sizeWindow}_window_{reestimationFreq}_reestimationFreq_{CapProportion}_cap_{nWindow}.npy",
-                            )
+                        )
                         if os.path.isfile(gamma_path) and not save_gamma:
                             Gamma = np.load(gamma_path)
                             self._Gamma = Gamma
@@ -784,44 +898,44 @@ class IPCA:
                             while nIter < maxIter / 2:
                                 f_list, _ = self._step_factor(
                                     R_list[
-                                    (
+                                        (
                                             initialMonths
                                             + nWindow * reestimationFreq
                                             - sizeWindow
-                                    ) : (initialMonths + nWindow * reestimationFreq)
+                                        ) : (initialMonths + nWindow * reestimationFreq)
                                     ],
                                     I_list[
-                                    (
+                                        (
                                             initialMonths
                                             + nWindow * reestimationFreq
                                             - sizeWindow
-                                    ) : (initialMonths + nWindow * reestimationFreq)
+                                        ) : (initialMonths + nWindow * reestimationFreq)
                                     ],
                                     self._Gamma,
                                     startIndex=initialMonths
-                                               + nWindow * reestimationFreq
-                                               - sizeWindow,
+                                    + nWindow * reestimationFreq
+                                    - sizeWindow,
                                 )
                                 Gamma = self._step_gamma(
                                     R_list[
-                                    (
+                                        (
                                             initialMonths
                                             + nWindow * reestimationFreq
                                             - sizeWindow
-                                    ) : (initialMonths + nWindow * reestimationFreq)
+                                        ) : (initialMonths + nWindow * reestimationFreq)
                                     ],
                                     I_list[
-                                    (
+                                        (
                                             initialMonths
                                             + nWindow * reestimationFreq
                                             - sizeWindow
-                                    ) : (initialMonths + nWindow * reestimationFreq)
+                                        ) : (initialMonths + nWindow * reestimationFreq)
                                     ],
                                     f_list,
                                     nFactors,
                                     startIndex=initialMonths
-                                               + nWindow * reestimationFreq
-                                               - sizeWindow,
+                                    + nWindow * reestimationFreq
+                                    - sizeWindow,
                                 )
                                 nIter += 1
                                 dGamma = np.max(np.abs(self._Gamma - Gamma))
@@ -839,8 +953,8 @@ class IPCA:
                     if not skip_oos:
                         # Computation of out-of-sample residuals
                         for month in range(
-                                (initialMonths + nWindow * reestimationFreq),
-                                (initialMonths + (nWindow + 1) * reestimationFreq),
+                            (initialMonths + nWindow * reestimationFreq),
+                            (initialMonths + (nWindow + 1) * reestimationFreq),
                         ):
                             if self._debug:
                                 print(
@@ -851,20 +965,22 @@ class IPCA:
                             )  # N x nfactors
                             # self.matrix_debug(beta_month, "beta_month")
                             idxs_days_month = (
-                                                      self.dailyDates[firstOOSDailyIdx:]
-                                                      > self.monthlyDates[month - 1]
-                                              ) & (
-                                                      self.dailyDates[firstOOSDailyIdx:]
-                                                      <= self.monthlyDates[month]
-                                              )
-                            R_month = Rdaily[:, mask2[month - 1, :]][ # ToDo: Hack the size of mask.
-                                      idxs_days_month, :
-                                      ]  # TxN
+                                self.dailyDates[firstOOSDailyIdx:]
+                                > self.monthlyDates[month - 1]
+                            ) & (
+                                self.dailyDates[firstOOSDailyIdx:]
+                                <= self.monthlyDates[month]
+                            )
+                            R_month = Rdaily[
+                                :, mask2[month - 1, :]
+                            ][  # ToDo: Hack the size of mask.
+                                idxs_days_month, :
+                            ]  # TxN
                             if save_rmonth:
                                 r_path = os.path.join(
                                     self._logdir + "_stuff",
                                     f"rmonth_{month}_month_{nFactors}_factors_{initialMonths}_initialMonths_{sizeWindow}_window_{reestimationFreq}_reestimationFreq_{CapProportion}_cap.npy",
-                                    )
+                                )
                                 np.save(r_path, R_month)
                             # change missing values to zeros to exclude them from calculation
 
@@ -882,10 +998,9 @@ class IPCA:
                             if beta_month.shape[0] == R_month_clean.shape[1]:
                                 pass
                             elif beta_month.shape[0] > R_month_clean.shape[1]:
-                                beta_month = beta_month[:R_month_clean.shape[1], :]
+                                beta_month = beta_month[: R_month_clean.shape[1], :]
                             elif beta_month.shape[0] < R_month_clean.shape[1]:
-                                R_month_clean = R_month_clean[:, :beta_month.shape[0]]
-
+                                R_month_clean = R_month_clean[:, : beta_month.shape[0]]
 
                             if weighted:
                                 # factors_month = np.linalg.pinv( # ToDo: Figure out how to extract W_month
@@ -914,27 +1029,27 @@ class IPCA:
                                 residuals_month, beta_month, R_month_clean
                             )
                             sparse_residuals_month = (
-                                    R_month_clean @ sparse_weights_month
+                                R_month_clean @ sparse_weights_month
                             )
                             if save_sparse_weights_month:
                                 sw_path = os.path.join(
                                     self._logdir + "_stuff",
                                     f"sparseweights_{month}_month_{nFactors}_factors_{initialMonths}_initialMonths_{sizeWindow}_window_{reestimationFreq}_reestimationFreq_{CapProportion}_cap.npy",
-                                    )
+                                )
                                 np.save(sw_path, sparse_weights_month)
                             if save_beta:
                                 beta_path = os.path.join(
                                     self._logdir + "_stuff",
                                     f"beta_{month}_month_{nFactors}_factors_{initialMonths}_initialMonths_{sizeWindow}_window_{reestimationFreq}_reestimationFreq_{CapProportion}_cap.npy",
-                                    )
+                                )
                                 np.save(beta_path, beta_month)
 
                             temp = residualsOOS[:, mask2[month - 1, :]].copy()
                             temp[idxs_days_month, :] = residuals_month
                             residualsOOS[:, mask2[month - 1, :]] = temp
                             sparse_temp = sparse_oos_residuals[
-                                          :, mask2[month - 1, :]
-                                          ].copy()
+                                :, mask2[month - 1, :]
+                            ].copy()
                             sparse_temp[idxs_days_month, :] = sparse_residuals_month
                             sparse_oos_residuals[:, mask2[month - 1, :]] = sparse_temp
                             factorsOOS[idxs_days_month, :] = factors_month.T
@@ -956,19 +1071,19 @@ class IPCA:
                                     mask2[month - 1, :].reshape((N, 1))
                                     @ mask2[month - 1, :].reshape((1, N)),
                                     (Tprime, N, N),
-                                    )
+                                )
                             ] = (
-                                    mask_month
-                                    * np.broadcast_to(
-                                MatrixReduced, (Tprime, Nprime, Nprime)
-                            )
+                                mask_month
+                                * np.broadcast_to(
+                                    MatrixReduced, (Tprime, Nprime, Nprime)
+                                )
                             ).ravel()
                             residualsMatricesOOS[idxs_days_month] = MatrixFull[
-                                                                    :, assetsToConsider
-                                                                    ][:, :, superMask]
+                                :, assetsToConsider
+                            ][:, :, superMask]
                             portfolio1 = residualsOOS[idxs_days_month][
-                                         :, assetsToConsider
-                                         ]
+                                :, assetsToConsider
+                            ]
                             portfolio2 = np.matmul(
                                 residualsMatricesOOS[idxs_days_month],
                                 np.nan_to_num(
@@ -976,7 +1091,7 @@ class IPCA:
                                 ).reshape(Tprime, Nsupertilde, 1),
                             ).squeeze()
                             transition_error = (
-                                    np.linalg.norm(portfolio1 - portfolio2) / Tprime
+                                np.linalg.norm(portfolio1 - portfolio2) / Tprime
                             )
                             # print(transition_error)
 
@@ -1009,30 +1124,30 @@ class IPCA:
         return
 
     def DailyOOSExpandingWindow(
-            self,
-            save=True,
-            weighted=True,
-            listFactors=list(range(1, 21)),
-            maxIter=1024,
-            printOnConsole=True,
-            printFreq=8,
-            tol=1e-03,
-            initialMonths=30 * 12,
-            sizeWindow=24 * 12,
-            CapProportion=0.001,
-            save_beta=False,
-            save_gamma=False,
-            save_rmonth=False,
-            save_mask=False,
-            save_sparse_weights_month=False,
-            skip_oos=False,
+        self,
+        save=True,
+        weighted=True,
+        listFactors=list(range(1, 21)),
+        maxIter=1024,
+        printOnConsole=True,
+        printFreq=8,
+        tol=1e-03,
+        initialMonths=30 * 12,
+        sizeWindow=24 * 12,
+        CapProportion=0.001,
+        save_beta=False,
+        save_gamma=False,
+        save_rmonth=False,
+        save_mask=False,
+        save_sparse_weights_month=False,
+        skip_oos=False,
     ):
         matrix_debug = self.matrix_debug
         R = self.monthlyData[:, :, 0]
         I = self.monthlyData[:, :, 1:]
         cap_chosen_idxs = (
-                self.monthlyCaps / np.nansum(self.monthlyCaps, axis=1, keepdims=True)
-                >= CapProportion * 0.01
+            self.monthlyCaps / np.nansum(self.monthlyCaps, axis=1, keepdims=True)
+            >= CapProportion * 0.01
         )
         mask = (~np.isnan(R)) * cap_chosen_idxs
         self.mask = mask
@@ -1047,8 +1162,8 @@ class IPCA:
         R_reshape = np.expand_dims(R[mask], axis=1)
         I_reshape = I[mask]
         splits = np.sum(mask, axis=1).cumsum()[
-                 :-1
-                 ]  # np.sum(mask, axis=1) how many stocks we have per year; the other cumukatively except for the last one
+            :-1
+        ]  # np.sum(mask, axis=1) how many stocks we have per year; the other cumukatively except for the last one
         R_list = np.split(R_reshape, splits)
         I_list = np.split(I_reshape, splits)
         self.R_list = R_list
@@ -1063,8 +1178,8 @@ class IPCA:
         firstOOSDailyIdx = np.argmax(
             self.dailyDates
             >= (
-                    pd.datetime(self.dailyDates.year[0], self.dailyDates.month[0], 1)
-                    + pd.DateOffset(months=initialMonths)
+                pd.datetime(self.dailyDates.year[0], self.dailyDates.month[0], 1)
+                + pd.DateOffset(months=initialMonths)
             )
         )
         print(f"firstidx {firstOOSDailyIdx}")
@@ -1092,19 +1207,19 @@ class IPCA:
             for nWindow in range(nWindows):
                 if nFactors == 0:
                     for month in range(
-                            (initialMonths + nWindow * sizeWindow),
-                            (initialMonths + (nWindow + 1) * sizeWindow),
+                        (initialMonths + nWindow * sizeWindow),
+                        (initialMonths + (nWindow + 1) * sizeWindow),
                     ):
                         idxs_days_month = (
-                                                  self.dailyDates[firstOOSDailyIdx:]
-                                                  > self.monthlyDates[month - 1]
-                                          ) & (
-                                                  self.dailyDates[firstOOSDailyIdx:]
-                                                  <= self.monthlyDates[month]
-                                          )
+                            self.dailyDates[firstOOSDailyIdx:]
+                            > self.monthlyDates[month - 1]
+                        ) & (
+                            self.dailyDates[firstOOSDailyIdx:]
+                            <= self.monthlyDates[month]
+                        )
                         R_month = Rdaily[:, mask[month - 1, :]][
-                                  idxs_days_month, :
-                                  ]  # TxN
+                            idxs_days_month, :
+                        ]  # TxN
                         # change missing values to zeros to exclude them from calculation
                         R_month_clean = R_month.copy()
                         R_month_clean[np.isnan(R_month_clean)] = 0
@@ -1124,7 +1239,7 @@ class IPCA:
                     gamma_path = os.path.join(
                         self._logdir + "_stuff",
                         f"gamma_{nFactors}_factors_{initialMonths}_initialMonths_{sizeWindow}_window_{CapProportion}_cap.npy",
-                        )
+                    )
                     if os.path.isfile(gamma_path) and not save_gamma:
                         Gamma = np.load(gamma_path)
                         self._Gamma = Gamma
@@ -1189,14 +1304,14 @@ class IPCA:
                             gamma_path = os.path.join(
                                 self._logdir + "_stuff",
                                 f"gamma_{nFactors}_factors_{initialMonths}_initialMonths_{sizeWindow}_window_{CapProportion}_cap.npy",
-                                )
+                            )
                             np.save(gamma_path, Gamma)
 
                     if not skip_oos:
                         # Computation of out-of-sample residuals
                         for month in range(
-                                (initialMonths + nWindow * sizeWindow),
-                                (initialMonths + (nWindow + 1) * sizeWindow),
+                            (initialMonths + nWindow * sizeWindow),
+                            (initialMonths + (nWindow + 1) * sizeWindow),
                         ):
                             if self._debug:
                                 print(
@@ -1206,20 +1321,20 @@ class IPCA:
                                 self._Gamma
                             )  # N x nfactors
                             idxs_days_month = (
-                                                      self.dailyDates[firstOOSDailyIdx:]
-                                                      > self.monthlyDates[month - 1]
-                                              ) & (
-                                                      self.dailyDates[firstOOSDailyIdx:]
-                                                      <= self.monthlyDates[month]
-                                              )
+                                self.dailyDates[firstOOSDailyIdx:]
+                                > self.monthlyDates[month - 1]
+                            ) & (
+                                self.dailyDates[firstOOSDailyIdx:]
+                                <= self.monthlyDates[month]
+                            )
                             R_month = Rdaily[:, mask[month - 1, :]][
-                                      idxs_days_month, :
-                                      ]  # TxN
+                                idxs_days_month, :
+                            ]  # TxN
                             if save_rmonth:
                                 r_path = os.path.join(
                                     self._logdir + "_stuff",
                                     f"rmonth_{month}_month_{nFactors}_factors_{initialMonths}_initialMonths_{sizeWindow}_window_{CapProportion}_cap.npy",
-                                    )
+                                )
                                 np.save(r_path, R_month)
                             # change missing values to zeros to exclude them from calculation
                             R_month_clean = R_month.copy()
@@ -1230,7 +1345,7 @@ class IPCA:
                                     factors_month = np.linalg.solve(
                                         beta_month.T @ W_month @ beta_month,
                                         beta_month.T @ W_month @ R_month_clean.T,
-                                        )  # nfactors x T
+                                    )  # nfactors x T
                                 else:
                                     factors_month = np.linalg.solve(
                                         beta_month.T.dot(beta_month),
@@ -1259,26 +1374,26 @@ class IPCA:
                                 residuals_month, beta_month, R_month_clean
                             )
                             sparse_residuals_month = (
-                                    R_month_clean @ sparse_weights_month
+                                R_month_clean @ sparse_weights_month
                             )
                             if save_sparse_weights_month:
                                 sw_path = os.path.join(
                                     self._logdir + "_stuff",
                                     f"sparseweights_{month}_month_{nFactors}_factors_{initialMonths}_initialMonths_{sizeWindow}_window_{CapProportion}_cap.npy",
-                                    )
+                                )
                                 np.save(sw_path, sparse_weights_month)
                             if save_beta:
                                 beta_path = os.path.join(
                                     self._logdir + "_stuff",
                                     f"beta_{month}_month_{nFactors}_factors_{initialMonths}_initialMonths_{sizeWindow}_window_{CapProportion}_cap.npy",
-                                    )
+                                )
                                 np.save(beta_path, beta_month)
                             temp = residualsOOS[:, mask[month - 1, :]].copy()
                             temp[idxs_days_month, :] = residuals_month
                             residualsOOS[:, mask[month - 1, :]] = temp
                             sparse_temp = sparse_oos_residuals[
-                                          :, mask[month - 1, :]
-                                          ].copy()
+                                :, mask[month - 1, :]
+                            ].copy()
                             sparse_temp[idxs_days_month, :] = sparse_residuals_month
                             sparse_oos_residuals[:, mask[month - 1, :]] = sparse_temp
                             factorsOOS[idxs_days_month, :] = factors_month.T
@@ -1314,50 +1429,192 @@ class IPCA:
         return
 
 
-# Need this to run code from super-computer
-def get_daily_data():
-    """
-    Returns daily excess returns, adjusted close, and volume
-    """
-
-    # Get tickers
-    # tickers = pd.read_parquet('daily.parquet')['ticker'].unique()
-    tickers = pd.read_csv('tickers.csv')['ticker'].unique()
-    risk_free = get_risk_free_rate()
-
-    # Get data
-    data = []
-    for tick in tqdm(tickers, desc='Downloading data', miniters=10):
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=FutureWarning)
-            df = yf.download(tick, start="1998-12-31", end="2024-01-01", progress=False)
-        df['ticker'] = tick
-        df['return'] = np.log(df['Adj Close']) - np.log(df['Adj Close'].shift(1)) - risk_free
-        data.append(df[['ticker', 'Adj Close', 'Volume', 'return']])
-
-    data = pd.concat(data)
-    data = data[~(data['ticker'].isna())]
-    data = data.pivot(columns='ticker')
-
-    # Save data
-    data.to_parquet('daily_data.parquet')
-
-    return data
+"""
+Fama French 
+"""
 
 
-def de_annualize(annual_rate, periods=365):
-    return (1 + annual_rate) ** (1 / periods) - 1
+class FamaFrench:
+    def __init__(self, logdir=os.getcwd()):
+        pathDailyData = "daily_data.npz"
+        pathMonthlyDataUnnormalized = "factor_data/MonthlyDataUnnormalized.npz"
+        pathMonthlyData = "factor_data/MonthlyDataNormalized.npz"
+        self.monthlyDataUnnormalized = np.load(
+            pathMonthlyDataUnnormalized, allow_pickle=True
+        )["data"]
+        self.monthlyCaps = np.nan_to_num(
+            self.monthlyDataUnnormalized[:, :, 19]
+        )  # ToDo: Check column index
 
+        dailyData = np.load(pathDailyData, allow_pickle=True)
+        monthlyData = np.load(pathMonthlyData, allow_pickle=True)
+        self.monthlyData = monthlyData["data"]
+        self.dailyData = dailyData["data"]
+        self.dailyDates = pd.to_datetime(dailyData["date"])
+        self.monthlyDates = pd.to_datetime(monthlyData["date"])
 
-def get_risk_free_rate():
-    # download 3-month us treasury bills rates
-    annualized = yf.download("^IRX", start="1998-12-31", end="2024-01-01")["Adj Close"]
+        self._logdir = logdir
+        self.FamaFrenchFiveFactorsDaily = (
+            pd.read_csv(
+                "factor_data/F-F_Research_Data_5_Factors_2x3_daily.CSV", index_col=0
+            )
+            / 100
+        )
+        print(self.FamaFrenchFiveFactorsDaily.head())
+        # breakpoint()
 
-    # de-annualize
-    daily = annualized.apply(de_annualize)
+    def OOSRollingWindowPermnos(
+        self,
+        save=True,
+        printOnConsole=True,
+        initialOOSYear=1998,
+        sizeWindow=60,
+        cap=0.01,
+        listFactors=list(range(8)),
+    ):
+        Rdaily = self.dailyData.copy()  # np.nan_to_num(self.dailyData)
+        T, N = Rdaily.shape
+        firstOOSDailyIdx = np.argmax(self.dailyDates.year >= initialOOSYear)
+        firstOOSMonthlyIdx = np.argmax(self.monthlyDates.year >= initialOOSYear)
+        firstOOSFFDailyIdx = np.argmax(
+            self.FamaFrenchFiveFactorsDaily.index >= initialOOSYear * 10000
+        )
+        FamaFrenchDaily = self.FamaFrenchFiveFactorsDaily.to_numpy()
+        OOSDailyDates = self.dailyDates[firstOOSDailyIdx:]
+        cap_chosen_idxs = (
+            self.monthlyCaps / np.nansum(self.monthlyCaps, axis=1, keepdims=True)
+            >= cap * 0.01
+        )
+        mask = (~np.isnan(self.monthlyData[:, :, 0])) * cap_chosen_idxs
 
-    # create dataframe
-    return daily
+        filename = f"DailyFamaFrench_OOSresiduals_{3}_factors_{initialOOSYear}_initialOOSYear_{sizeWindow}_rollingWindow_{cap}_Cap.npy"
+        DataTrain = np.load(os.path.join(self._logdir, filename))
+        # chooses stocks which have at least #lookback non-missing observations in all the training time
+        assetsToConsider = np.count_nonzero(DataTrain, axis=0) >= 30
+        Ntilde = np.sum(assetsToConsider)
+        print("N", N, "Ntilde", Ntilde)
+
+        if printOnConsole:
+            print("Computing residuals")
+
+        for factor in listFactors:
+            residualsOOS = np.zeros((T - firstOOSDailyIdx, N), dtype=float)
+            notmissingOOS = np.zeros((T - firstOOSDailyIdx), dtype=float)
+            monthlyIdx = firstOOSMonthlyIdx - 2
+            residualsMatricesOOS = np.zeros(
+                (T - firstOOSDailyIdx, Ntilde, Ntilde + factor), dtype=np.float32
+            )
+
+            for t in range(T - firstOOSDailyIdx):
+                if (
+                    self.dailyDates[t + firstOOSDailyIdx - 1].month
+                    != self.dailyDates[t + firstOOSDailyIdx].month
+                ):
+                    monthlyIdx += 1
+                idxsNotMissingValues = ~np.any(
+                    np.isnan(
+                        Rdaily[
+                            (t + firstOOSDailyIdx - sizeWindow) : (
+                                t + firstOOSDailyIdx
+                            ),
+                            :,
+                        ]
+                    ),
+                    axis=0,
+                ).ravel()
+                print(idxsNotMissingValues.shape, mask[monthlyIdx, :].shape)
+                print(self.monthlyDates[monthlyIdx], OOSDailyDates[t])
+                idxsSelected = idxsNotMissingValues * mask[monthlyIdx, :]
+                notmissingOOS[t] = np.sum(idxsNotMissingValues)
+
+                if t % 100 == 0 and printOnConsole:
+                    print(
+                        f"At date {OOSDailyDates[t]}, Not-missing permnos: {notmissingOOS[t]}, "
+                        f"Permnos with cap {np.sum(mask[monthlyIdx,:])}, Selected: {sum(idxsSelected)}"
+                    )
+                    print(
+                        np.sum(idxsSelected) - np.sum(assetsToConsider * idxsSelected)
+                    )
+                if factor == 0:
+                    residualsOOS[t : (t + 1), idxsSelected] = Rdaily[
+                        (t + firstOOSDailyIdx) : (t + firstOOSDailyIdx + 1),
+                        idxsSelected,
+                    ]
+                    residualsMatricesOOS[t : (t + 1), :, :Ntilde] = np.diag(
+                        idxsSelected[assetsToConsider]
+                    )
+                else:
+                    Y = Rdaily[
+                        (t + firstOOSDailyIdx - sizeWindow) : (t + firstOOSDailyIdx),
+                        idxsSelected,
+                    ]
+                    X = FamaFrenchDaily[
+                        (t + firstOOSFFDailyIdx - sizeWindow) : (
+                            t + firstOOSFFDailyIdx
+                        ),
+                        :factor,
+                    ]
+                    regr = LinearRegression(fit_intercept=False, n_jobs=48).fit(X, Y)
+                    loadings = regr.coef_.T  # 5 x N
+                    OOSreturns = Rdaily[
+                        (t + firstOOSDailyIdx) : (t + firstOOSDailyIdx + 1),
+                        idxsSelected,
+                    ]
+                    factors = FamaFrenchDaily[
+                        (t + firstOOSFFDailyIdx) : (t + firstOOSFFDailyIdx + 1), :factor
+                    ]  # TxnFactors
+                    residuals = OOSreturns - factors.dot(loadings)
+                    residualsOOS[t : (t + 1), idxsSelected] = np.nan_to_num(
+                        residuals, copy=False
+                    )
+
+                    Loadings = np.zeros((N, factor))
+                    Loadings[idxsSelected] = -loadings.T
+                    residualsMatricesOOS[t, :, :Ntilde] = np.diag(
+                        idxsSelected[assetsToConsider]
+                    )  # np.eye(Ntilde)
+                    residualsMatricesOOS[t, :, Ntilde:] = np.nan_to_num(
+                        Loadings[assetsToConsider], copy=False
+                    )
+                    if t % 50 == 0 and printOnConsole:
+                        concatenate = np.concatenate(
+                            (
+                                np.nan_to_num(
+                                    Rdaily[(t + firstOOSDailyIdx), assetsToConsider],
+                                    copy=False,
+                                ),
+                                FamaFrenchDaily[(t + firstOOSFFDailyIdx), :factor],
+                            ),
+                            axis=0,
+                        )
+                        print(
+                            np.linalg.norm(
+                                residualsOOS[t, assetsToConsider]
+                                - residualsMatricesOOS[t] @ concatenate
+                            )
+                        )
+
+            print("Transforming NaNs to nums")
+            np.nan_to_num(residualsOOS, copy=False)
+            np.nan_to_num(residualsMatricesOOS, copy=False)
+            if printOnConsole:
+                print(f"Finished! Cap: {cap}, factor: {factor}")
+            if save:
+                print(f"Saving")
+                residuals_mtx_filename = (
+                    f"DailyFamaFrench_OOSMatrixresiduals"
+                    + f"_{factor}_factors_{initialOOSYear}_initialOOSYear_{sizeWindow}_rollingWindow_{cap}_Cap.npy"
+                )
+                np.save(
+                    os.path.join(self._logdir, residuals_mtx_filename),
+                    residualsMatricesOOS,
+                )
+                residuals_filename = (
+                    f"DailyFamaFrench_OOSresiduals"
+                    + f"_{factor}_factors_{initialOOSYear}_initialOOSYear_{sizeWindow}_rollingWindow_{cap}_Cap.npy"
+                )
+                np.save(os.path.join(self._logdir, residuals_filename), residualsOOS)
+                print(f"Saved")
 
 
 if __name__ == "__main__":
