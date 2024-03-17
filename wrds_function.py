@@ -80,7 +80,7 @@ def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
         from statsmodels.formula.api import ols
 
         # Read tickers from file
-        tickers = pd.read_csv('tickers.csv')['ticker'].tolist()
+        tickers = pd.read_csv("tickers.csv")["ticker"].tolist()
 
         crsp_monthly_query = f"""
         SELECT msf.ticker, msf.permno, msf.mthcaldt AS date, 
@@ -138,7 +138,7 @@ def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
         print(f"Fetching risk free rate and calculating excess returns")
         rf = yf.download("^IRX", start=start_date, end=end_date)["Adj Close"]
         rf = pd.DataFrame(
-            rf.apply(lambda x: (1 + x) ** (1 / 12) - 1)/100
+            rf.apply(lambda x: (1 + x) ** (1 / 12) - 1) / 100
         )  # Monthly risk free rate.
         # Set Date as datetime
         rf.index = pd.to_datetime(rf.index)
@@ -162,10 +162,9 @@ def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
         mkt["jdate"] = mkt.index + MonthEnd(0)
         mkt.rename(columns={"Adj Close": "mkt"}, inplace=True)
         mkt = mkt.groupby("jdate").last()
-        mkt["mkt_ret"] = mkt["mkt"] - mkt["mkt"].shift(1) # ToDo: This is not correct.
+        mkt["mkt_ret"] = mkt["mkt"] - mkt["mkt"].shift(1)  # ToDo: This is not correct.
         # Calculate market return
         mkt["mkt_ret"] = mkt["mkt_ret"].fillna(0)
-        
 
         # Sort by date
         mkt = mkt.sort_values("jdate")
@@ -453,10 +452,10 @@ def process_compustat(save=False):
 
     fundamentals = pd.DataFrame()
     fundamentals["ticker"] = df["ticker"].astype("str")
-    fundamentals["date"] = df["jdate"]
-    fundamentals["year"] = df["jdate"].dt.year
+    fundamentals["date"] = df["date"]
+    fundamentals["year"] = df["date"].dt.year
     fundamentals["noa"] = (df["at"] - df["che"] - df["ivao"]) - (
-            df["at"] - df["dlc"] - df["dltt"] - df["mib"] - df["pstk"] - df["ceq"]
+        df["at"] - df["dlc"] - df["dltt"] - df["mib"] - df["pstk"] - df["ceq"]
     )
     fundamentals["prc"] = df["altprc"]
     fundamentals["shrout"] = df["shrout"]
@@ -465,7 +464,7 @@ def process_compustat(save=False):
     # fundamentals['lme'] = df['lme'] # Not available yet...
     fundamentals["a2me"] = df["at"] / (fundamentals["shrout"] * fundamentals["prc"])
     fundamentals["ac"] = (df["act"] - df["che"] - df["lct"] - df["txp"]) / (
-            df["be"] / (fundamentals["prc"] * fundamentals["prc"])
+        df["be"] / (fundamentals["prc"] * fundamentals["prc"])
     )
     fundamentals["at"] = df["at"]
     fundamentals["ato"] = df["sale"] / fundamentals["noa"]
@@ -474,7 +473,7 @@ def process_compustat(save=False):
     fundamentals["c"] = df["che"] / df["at"]
     fundamentals["cf"] = (df["ni"] + df["dp"]) / df["at"]
     fundamentals["cf2p"] = (df["ib"] + df["dp"] + df["txdb"]) / (
-            fundamentals["prc"] * fundamentals["shrout"]
+        fundamentals["prc"] * fundamentals["shrout"]
     )
     fundamentals["cto"] = df["sale"] / df["at"]
     fundamentals["d2a"] = df["dp"] / df["at"]
@@ -484,7 +483,7 @@ def process_compustat(save=False):
     fundamentals["fc2y"] = (df["xsga"] + df["xrd"]) / df["sale"]
     # fundamentals['IdioVol']  Standard deviation of the residuals from aregression of excess returns on the Fama and French three-factor model. Not available yet...
     fundamentals["lev"] = (df["dltt"] + df["dlc"]) / (
-            df["dltt"] + df["dlc"] + df["seq"]
+        df["dltt"] + df["dlc"] + df["seq"]
     )
     # fundamentals['lt_rev'] "Cumulative return from 60 months before the return prediction to 13 months before."
     # fundamentals['lturnover'] Coefficient of the market excess return from the regression on excess returns in the past 60 months (24 months minimum).
@@ -504,32 +503,39 @@ def process_compustat(save=False):
     fundamentals["csho"] = df["csho"]
     fundamentals["ajex"] = df["ajex"]
     fundamentals_lags = (
-        fundamentals[["ticker", "year", "at", "cap", "csho", "ajex"]]
-        .assign(year=lambda x: x["year"] + 1)
-        .rename(
-            columns={
-                "at": "at_lag",
-                "cap": "lme",
-                "csho": "csho_lag",
-                "ajex": "ajex_lag",
-            }
+        (
+            fundamentals[["ticker", "year", "at", "cap", "csho", "ajex"]]
+            .assign(year=lambda x: x["year"] + 1)
+            .rename(
+                columns={
+                    "at": "at_lag",
+                    "cap": "lme",
+                    "csho": "csho_lag",
+                    "ajex": "ajex_lag",
+                }
+            )
         )
+        .groupby(["ticker", "year"])
+        .last()
     )
     fundamentals = fundamentals.merge(
         fundamentals_lags, how="left", on=["ticker", "year"]
     )
     fundamentals = fundamentals.replace([np.inf, -np.inf], np.nan)
     fundamentals.fillna(0, inplace=True)
-    fundamentals["ni"] = (np.log(1 + fundamentals["csho"] * fundamentals["ajex"]) - np.log(1 + fundamentals["csho_lag"] * fundamentals["ajex_lag"])).fillna(0)
+    fundamentals["ni"] = (
+        np.log(1 + fundamentals["csho"] * fundamentals["ajex"])
+        - np.log(1 + fundamentals["csho_lag"] * fundamentals["ajex_lag"])
+    ).fillna(0)
     fundamentals["investment"] = (df["at_lag"] - df["at"]) / df["at_lag"]
     fundamentals["beta"] = df["beta"]
     fundamentals["oa"] = (
-                                 df["act"] - df["che"] - df["lct"] - df["txp"] - df["dp"]
-                         ) / df["at_lag"]
+        df["act"] - df["che"] - df["lct"] - df["txp"] - df["dp"]
+    ) / df["at_lag"]
     fundamentals["ol"] = (df["lt"] - df["dlc"] - df["dltt"]) / df["at_lag"]
     fundamentals["op"] = (
-                                 df["sale"] - df["cogs"] - df["xsga"] - df["xint"] - df["txditc"]
-                         ) / df["at_lag"]
+        df["sale"] - df["cogs"] - df["xsga"] - df["xint"] - df["txditc"]
+    ) / df["at_lag"]
     # fundamentals['d2p'] = df['divamty'] / df['lme']
 
     fundamentals.fillna(0, inplace=True)
