@@ -451,6 +451,7 @@ def process_compustat(save=False):
     df = df.fillna(0)
 
     fundamentals = pd.DataFrame()
+    fundamentals["permno"] = df["permno"]
     fundamentals["ticker"] = df["ticker"].astype("str")
     fundamentals["date"] = df["date"]
     fundamentals["year"] = df["date"].dt.year
@@ -539,6 +540,9 @@ def process_compustat(save=False):
     # fundamentals['d2p'] = df['divamty'] / df['lme']
 
     fundamentals.fillna(0, inplace=True)
+
+    # Drop ticker column
+    fundamentals = fundamentals.drop(columns=["ticker"])
 
     if save:
         print(f"Saving characteristics")

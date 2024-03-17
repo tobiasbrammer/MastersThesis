@@ -237,14 +237,14 @@ def run_ipca():
     preprocessDailyReturns()
     print("Initializing IPCA factor model")
     ipca = IPCA(logdir=os.path.join("factor_data/residuals", "ipca_normalized"))
-    for capProportion in [0.01]:  # , 0.001]:
-        for sizeWindow in [4 * 12]:  # 15*12]:
+    for capProportion in [0.001]:  # , 0.001]:
+        for sizeWindow in [15 * 12]:  # 15*12]:
             print(
                 f"Running IPCA for window size {sizeWindow}, cap proportion {capProportion}"
             )
             ipca.DailyOOSRollingWindow(
                 listFactors=[0, 1, 3, 5, 8, 10, 15],  # [0, 1, 3, 5, 8, 10, 15]
-                initialMonths=36,  # 210
+                initialMonths=210,  # 210
                 sizeWindow=sizeWindow,
                 CapProportion=capProportion,
                 maxIter=1000,
@@ -281,19 +281,22 @@ def preprocessMonthlyData(
         # Drop index
         df = df.copy().reset_index(drop=True)
         # Set index from date and ticker
-        df.index = pd.MultiIndex.from_frame(df[["date", "ticker"]])
+        df.index = pd.MultiIndex.from_frame(df[["date", "permno"]])
         # Omit ticker and date new df
-        _df = df.drop(columns=["date", "ticker"])
+        _df = df.drop(columns=["date", "permno", "year"])
         # Group _df by date and 'normalize'
         _df = _df.groupby("date").apply(
-            lambda x: x.rank(method="first") / x.count() - 0.5
+            lambda x: x.rank(method="first") / x.count() - 0.5, include_groups=False
         )  # DLSA does it differently
+        _df = _df.copy().reset_index(drop=True)
+        # Set index from date and ticker
+        _df.index = pd.MultiIndex.from_frame(df[["date", "permno"]])
         df = _df.copy()
     else:
         name = name.replace("Normalized.npz", "Unnormalized.npz")
         df.reset_index(inplace=True, drop=True)
-        df.index = pd.MultiIndex.from_frame(org_df[["date", "ticker"]])
-        df = df.drop(columns=["date", "ticker"])
+        df.index = pd.MultiIndex.from_frame(org_df[["date", "permno"]])
+        df = df.drop(columns=["date", "permno", "year"])
 
     savepath = os.path.join(logdir, name)
     if os.path.exists(savepath):
@@ -301,10 +304,12 @@ def preprocessMonthlyData(
         return
 
     df.sort_index(inplace=True)
+    # Reshape index to only have one date and one ticker, i.e. index 0 and 2
+
     shape = df.index.levshape + tuple([len(df.columns)])
     data = np.full(shape, np.nan)
     # ToDo: Need to come up with something else since we use ticker instead of permno.
-    data[tuple(df.index.ticker)] = df.values
+    data[tuple(df.index.codes)] = df.values
 
     date = df.index.levels[0].to_numpy()
     ticker = df.index.levels[1].to_numpy()
@@ -353,7 +358,7 @@ def preprocessDailyReturns(
 class IPCA:
     def __init__(
         self,
-        individual_feature_dim=33,
+        individual_feature_dim=40,
         logdir=os.getcwd(),
         debug=True,
         pathMonthlyData="factor_data/MonthlyDataNormalized.npz",
@@ -377,7 +382,7 @@ class IPCA:
         )["data"]
         # Extract the market cap
         self.monthlyCaps = self.monthlyData[
-            :, :, 6
+            :, :, 4
         ]  # ToDo: Ensure correct column index.
 
         self.dailyDates = pd.to_datetime(dailyData["date"])
@@ -733,7 +738,7 @@ class IPCA:
         assetsToConsider = (
             np.count_nonzero(DataTrain, axis=0) >= 30
         )  # chooses stocks which have at least #lookback non-missing observations in all the training time
-        print(np.where(assetsToConsider))
+        # print(np.where(assetsToConsider))
         print(f"sum a2c {np.sum(assetsToConsider)}")
         Ntilde = np.sum(
             assetsToConsider
@@ -746,6 +751,11 @@ class IPCA:
             superMask
         )  # the maximum assets that are going to be involved in the interesting residuals
         print(f"superMask {superMask.shape} {Nsupertilde} {len(superMask)}")
+
+        # If factor_data/residuals does not exist, create it
+        if not os.path.exists("factor_data/residuals"):
+            os.makedirs("factor_data/residuals")
+
         np.save("factor_data/residuals/super_mask.npy", superMask)
 
         if not os.path.isdir(
