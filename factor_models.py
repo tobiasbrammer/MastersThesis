@@ -238,7 +238,7 @@ def run_ipca():
     print("Initializing IPCA factor model")
     ipca = IPCA(logdir=os.path.join("factor_data/residuals", "ipca_normalized"))
     for capProportion in [0.001]:  # , 0.001]:
-        for sizeWindow in [15 * 12]:  # 15*12]:
+        for sizeWindow in [10 * 12]:  # 15*12]:
             print(
                 f"Running IPCA for window size {sizeWindow}, cap proportion {capProportion}"
             )
@@ -256,7 +256,7 @@ def run_ipca():
                 save_mask=False,
                 save_sparse_weights_month=False,
                 skip_oos=False,
-                reestimationFreq=12,
+                reestimationFreq=24,
             )
     return
 
