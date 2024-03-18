@@ -13,4 +13,4 @@ capProportion = [0.001]
 
 # factor_models.run_factor_models()
 
-fm.run_ipca(listFactors=listFactors, sizeWindow=sizeWindow, capProportion=capProportion)
+fm.run_factor_models()

@@ -440,6 +440,7 @@ def process_compustat(save=False):
 
     import pandas as pd
     import numpy as np
+    import os
 
     # Set .streamlit/config.toml to [global]
     # dataFrameSerialization = "legacy"
@@ -449,6 +450,14 @@ def process_compustat(save=False):
     print(f"Constructing final characteristics")
 
     df = df.fillna(0)
+
+    dimTicker = pd.DataFrame()
+    dimTicker["permno"] = df["permno"]
+    dimTicker["ticker"] = df["ticker"].astype("str")
+
+    if not os.path.exists("factor_data"):
+        os.makedirs("factor_data")
+    dimTicker.to_parquet("factor_data/TickersPermnos.parquet")
 
     fundamentals = pd.DataFrame()
     fundamentals["permno"] = df["permno"]
@@ -546,10 +555,6 @@ def process_compustat(save=False):
 
     if save:
         print(f"Saving characteristics")
-        import os
-
-        if not os.path.exists("factor_data"):
-            os.makedirs("factor_data")
         fundamentals.to_parquet("factor_data/MonthlyData.parquet")
         return
 
