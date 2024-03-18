@@ -74,7 +74,7 @@ def run_factor_models():
     # Initialize parameters for PCA
     factor_list = [5]
     sizeCovarianceWindow = 252
-    sizeWindow = 60
+    sizeWindow = [60]
     intitialOOSYear = 2000
     df = pd.read_parquet("daily_data.parquet")
 
@@ -88,6 +88,9 @@ def run_factor_models():
 
     # Run PCA
     pca(factor_list, sizeCovarianceWindow, sizeWindow, intitialOOSYear, df)
+
+    # Run IPCA
+    run_ipca(listFactors=factor_list, sizeWindow=sizeWindow, capProportion=[0.001])
 
     return
 
@@ -222,7 +225,7 @@ IPCA
 """
 
 
-def run_ipca():
+def run_ipca(listFactors: list, sizeWindow: list, capProportion: list):
     import wrds_function
 
     print("Loading characteristics data")
@@ -237,17 +240,17 @@ def run_ipca():
     preprocessDailyReturns()
     print("Initializing IPCA factor model")
     ipca = IPCA(logdir=os.path.join("factor_data/residuals", "ipca_normalized"))
-    for capProportion in [0.01]:  # , 0.001]:
-        for sizeWindow in [4 * 12]:  # 15*12]:
+    for capProportion in capProportion:  # , 0.001]:
+        for sizeWindow in sizeWindow:  # 15*12]:
             print(
                 f"Running IPCA for window size {sizeWindow}, cap proportion {capProportion}"
             )
             ipca.DailyOOSRollingWindow(
-                listFactors=[0, 1, 3, 5, 8, 10, 15],  # [0, 1, 3, 5, 8, 10, 15]
-                initialMonths=36,  # 210
+                listFactors=listFactors,  # [0, 1, 3, 5, 8, 10, 15]
+                initialMonths=210,  # 210
                 sizeWindow=sizeWindow,
                 CapProportion=capProportion,
-                maxIter=1000,
+                maxIter=5000,
                 weighted=False,
                 save=True,
                 save_beta=False,
@@ -281,19 +284,22 @@ def preprocessMonthlyData(
         # Drop index
         df = df.copy().reset_index(drop=True)
         # Set index from date and ticker
-        df.index = pd.MultiIndex.from_frame(df[["date", "ticker"]])
+        df.index = pd.MultiIndex.from_frame(df[["date", "permno"]])
         # Omit ticker and date new df
-        _df = df.drop(columns=["date", "ticker"])
+        _df = df.drop(columns=["date", "permno", "year"])
         # Group _df by date and 'normalize'
         _df = _df.groupby("date").apply(
-            lambda x: x.rank(method="first") / x.count() - 0.5
+            lambda x: x.rank(method="first") / x.count() - 0.5, include_groups=False
         )  # DLSA does it differently
+        _df = _df.copy().reset_index(drop=True)
+        # Set index from date and ticker
+        _df.index = pd.MultiIndex.from_frame(df[["date", "permno"]])
         df = _df.copy()
     else:
         name = name.replace("Normalized.npz", "Unnormalized.npz")
         df.reset_index(inplace=True, drop=True)
-        df.index = pd.MultiIndex.from_frame(org_df[["date", "ticker"]])
-        df = df.drop(columns=["date", "ticker"])
+        df.index = pd.MultiIndex.from_frame(org_df[["date", "permno"]])
+        df = df.drop(columns=["date", "permno", "year"])
 
     savepath = os.path.join(logdir, name)
     if os.path.exists(savepath):
@@ -301,16 +307,18 @@ def preprocessMonthlyData(
         return
 
     df.sort_index(inplace=True)
+    # Reshape index to only have one date and one ticker, i.e. index 0 and 2
+
     shape = df.index.levshape + tuple([len(df.columns)])
     data = np.full(shape, np.nan)
     # ToDo: Need to come up with something else since we use ticker instead of permno.
-    data[tuple(df.index.ticker)] = df.values
+    data[tuple(df.index.codes)] = df.values
 
     date = df.index.levels[0].to_numpy()
     ticker = df.index.levels[1].to_numpy()
     variable = df.columns.to_numpy()
 
-    np.save(os.path.join(logdir, "factor_data/MonthlyDataTickers.npy"), ticker)
+    np.save(os.path.join(logdir, "factor_data/MonthlyDataPermno.npy"), ticker)
     np.savez(savepath, data=data, date=date, ticker=ticker, variable=variable)
     return
 
@@ -353,7 +361,7 @@ def preprocessDailyReturns(
 class IPCA:
     def __init__(
         self,
-        individual_feature_dim=33,
+        individual_feature_dim=40,
         logdir=os.getcwd(),
         debug=True,
         pathMonthlyData="factor_data/MonthlyDataNormalized.npz",
@@ -377,7 +385,7 @@ class IPCA:
         )["data"]
         # Extract the market cap
         self.monthlyCaps = self.monthlyData[
-            :, :, 6
+            :, :, 4
         ]  # ToDo: Ensure correct column index.
 
         self.dailyDates = pd.to_datetime(dailyData["date"])
@@ -660,7 +668,7 @@ class IPCA:
         printFreq=100,
         tol=1e-02,
         initialMonths=35 * 12,
-        sizeWindow=1 * 12,  # ToDo: Original value was 15*12
+        sizeWindow=15 * 12,  # Original value was 15*12
         CapProportion=0.001,
         save_beta=False,
         save_gamma=False,
@@ -733,7 +741,7 @@ class IPCA:
         assetsToConsider = (
             np.count_nonzero(DataTrain, axis=0) >= 30
         )  # chooses stocks which have at least #lookback non-missing observations in all the training time
-        print(np.where(assetsToConsider))
+        # print(np.where(assetsToConsider))
         print(f"sum a2c {np.sum(assetsToConsider)}")
         Ntilde = np.sum(
             assetsToConsider
@@ -746,6 +754,11 @@ class IPCA:
             superMask
         )  # the maximum assets that are going to be involved in the interesting residuals
         print(f"superMask {superMask.shape} {Nsupertilde} {len(superMask)}")
+
+        # If factor_data/residuals does not exist, create it
+        if not os.path.exists("factor_data/residuals"):
+            os.makedirs("factor_data/residuals")
+
         np.save("factor_data/residuals/super_mask.npy", superMask)
 
         if not os.path.isdir(
@@ -1434,6 +1447,35 @@ Fama French
 """
 
 
+def run_FF(sizeWindow: list, intitialOOSYear: int, capProportion: list):
+    import wrds_function
+
+    print("Loading characteristics data")
+    if not os.path.exists("factor_data/MonthlyData.parquet"):
+        wrds_function.process_compustat(save=True)
+    MonthlyData = pd.read_parquet("factor_data/MonthlyData.parquet")
+    print("Loading daily returns")
+    print("Preprocessing monthly characteristics data")
+    preprocessMonthlyData(MonthlyData, normalizeCharacteristics=True)
+    preprocessMonthlyData(MonthlyData, normalizeCharacteristics=False)
+    print("Preprocessing daily returns")
+    preprocessDailyReturns()
+    print("Initializing Fama French factor model")
+    ff = FamaFrench(logdir=os.path.join("factor_data/residuals", "fama_french"))
+    for capProportion in capProportion:  # , 0.001]:
+        for sizeWindow in sizeWindow:  # 15*12]:
+            print(
+                f"Running Fama French for window size {sizeWindow}, cap proportion {capProportion}"
+            )
+            ff.OOSRollingWindowPermnos(
+                initialOOSYear=intitialOOSYear,
+                sizeWindow=sizeWindow,
+                cap=capProportion,
+                save=True,
+            )
+    return
+
+
 class FamaFrench:
     def __init__(self, logdir=os.getcwd()):
         pathDailyData = "daily_data.npz"
@@ -1443,7 +1485,7 @@ class FamaFrench:
             pathMonthlyDataUnnormalized, allow_pickle=True
         )["data"]
         self.monthlyCaps = np.nan_to_num(
-            self.monthlyDataUnnormalized[:, :, 19]
+            self.monthlyDataUnnormalized[:, :, 4]
         )  # ToDo: Check column index
 
         dailyData = np.load(pathDailyData, allow_pickle=True)
@@ -1456,7 +1498,9 @@ class FamaFrench:
         self._logdir = logdir
         self.FamaFrenchFiveFactorsDaily = (
             pd.read_csv(
-                "factor_data/F-F_Research_Data_5_Factors_2x3_daily.CSV", index_col=0
+                "factor_data/F-F_Research_Data_5_Factors_2x3_daily.CSV",
+                index_col=0,
+                skiprows=3,
             )
             / 100
         )
@@ -1486,13 +1530,16 @@ class FamaFrench:
             >= cap * 0.01
         )
         mask = (~np.isnan(self.monthlyData[:, :, 0])) * cap_chosen_idxs
-
+        # operands could not be broadcast together with shapes (459,) (550,)
+        mask = mask[:, : Rdaily.shape[1]]  # ToDo: Hack the number of stocks...
         filename = f"DailyFamaFrench_OOSresiduals_{3}_factors_{initialOOSYear}_initialOOSYear_{sizeWindow}_rollingWindow_{cap}_Cap.npy"
-        DataTrain = np.load(os.path.join(self._logdir, filename))
+        # filename = f"DailyFamaFrench_OOSresiduals_{listFactors}_factors_{initialOOSYear}_initialOOSYear_{sizeWindow}_rollingWindow_{cap}_Cap.npy"
+        DataTrain = Rdaily  # ToDo: What else to load?
+        # DataTrain = np.load(os.path.join(self._logdir, filename))
         # chooses stocks which have at least #lookback non-missing observations in all the training time
         assetsToConsider = np.count_nonzero(DataTrain, axis=0) >= 30
         Ntilde = np.sum(assetsToConsider)
-        print("N", N, "Ntilde", Ntilde)
+        # print("N", N, "Ntilde", Ntilde)
 
         if printOnConsole:
             print("Computing residuals")
@@ -1522,8 +1569,8 @@ class FamaFrench:
                     ),
                     axis=0,
                 ).ravel()
-                print(idxsNotMissingValues.shape, mask[monthlyIdx, :].shape)
-                print(self.monthlyDates[monthlyIdx], OOSDailyDates[t])
+#                print(idxsNotMissingValues.shape, mask[monthlyIdx, :].shape)
+#                print(self.monthlyDates[monthlyIdx], OOSDailyDates[t])
                 idxsSelected = idxsNotMissingValues * mask[monthlyIdx, :]
                 notmissingOOS[t] = np.sum(idxsNotMissingValues)
 

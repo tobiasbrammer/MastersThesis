@@ -1,5 +1,5 @@
 # Get WRDS data for Instrumented PCA
-def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
+def get_wrds(start_date="1970-01-01", end_date="2024-01-01"):
     # ToDo: Figure out why there are so many rows. Seems like some part of the code uses daily data...
     from pandas.tseries.offsets import MonthEnd
     import pandas as pd
@@ -79,6 +79,9 @@ def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
         import yfinance as yf
         from statsmodels.formula.api import ols
 
+        # Read tickers from file
+        tickers = pd.read_csv("tickers.csv")["ticker"].tolist()
+
         crsp_monthly_query = f"""
         SELECT msf.ticker, msf.permno, msf.mthcaldt AS date, 
             date_trunc('month', msf.mthcaldt)::date AS month, 
@@ -90,6 +93,7 @@ def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
             ssih.secinfostartdt <= msf.mthcaldt AND 
             msf.mthcaldt <= ssih.secinfoenddt 
             WHERE msf.mthcaldt BETWEEN '{start_date}' AND '{end_date}' 
+            AND msf.ticker IN {tuple(tickers)}
             AND ssih.sharetype = 'NS' 
             AND ssih.securitytype = 'EQTY' 
             AND ssih.securitysubtype = 'COM' 
@@ -134,7 +138,7 @@ def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
         print(f"Fetching risk free rate and calculating excess returns")
         rf = yf.download("^IRX", start=start_date, end=end_date)["Adj Close"]
         rf = pd.DataFrame(
-            rf.apply(lambda x: (1 + x) ** (1 / 12) - 1)
+            rf.apply(lambda x: (1 + x) ** (1 / 12) - 1) / 100
         )  # Monthly risk free rate.
         # Set Date as datetime
         rf.index = pd.to_datetime(rf.index)
@@ -158,8 +162,12 @@ def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
         mkt["jdate"] = mkt.index + MonthEnd(0)
         mkt.rename(columns={"Adj Close": "mkt"}, inplace=True)
         mkt = mkt.groupby("jdate").last()
-        mkt["mkt_ret"] = mkt["mkt"] - mkt["mkt"].shift(1)
+        mkt["mkt_ret"] = mkt["mkt"] - mkt["mkt"].shift(1)  # ToDo: This is not correct.
+        # Calculate market return
+        mkt["mkt_ret"] = mkt["mkt_ret"].fillna(0)
 
+        # Sort by date
+        mkt = mkt.sort_values("jdate")
         crsp_monthly = crsp_monthly.merge(mkt, how="left", on="jdate")
 
         print(f"Fetching market returns and calculating betas")
@@ -415,7 +423,7 @@ def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
     sizemom["group"] = sizemom.apply(size_group, axis=1)
     sizemom["year"] = sizemom["date"].dt.year - 1
     sizemom = sizemom[["permno", "year", "mom", "group", "ret"]]
-    comp = pd.merge(comp, sizemom, how="inner", on=["permno", "year"])
+    comp = pd.merge(comp, sizemom, how="left", on=["permno", "year"])
 
     del sizemom
 
@@ -429,6 +437,7 @@ def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
 
 
 def process_compustat(save=False):
+
     import pandas as pd
     import numpy as np
 
@@ -442,9 +451,10 @@ def process_compustat(save=False):
     df = df.fillna(0)
 
     fundamentals = pd.DataFrame()
+    fundamentals["permno"] = df["permno"]
     fundamentals["ticker"] = df["ticker"].astype("str")
-    fundamentals["date"] = df["jdate"]
-    fundamentals["year"] = df["jdate"].dt.year
+    fundamentals["date"] = df["date"]
+    fundamentals["year"] = df["date"].dt.year
     fundamentals["noa"] = (df["at"] - df["che"] - df["ivao"]) - (
         df["at"] - df["dlc"] - df["dltt"] - df["mib"] - df["pstk"] - df["ceq"]
     )
@@ -494,25 +504,30 @@ def process_compustat(save=False):
     fundamentals["csho"] = df["csho"]
     fundamentals["ajex"] = df["ajex"]
     fundamentals_lags = (
-        fundamentals[["ticker", "year", "at", "cap", "csho", "ajex"]]
-        .assign(year=lambda x: x["year"] + 1)
-        .rename(
-            columns={
-                "at": "at_lag",
-                "cap": "lme",
-                "csho": "csho_lag",
-                "ajex": "ajex_lag",
-            }
+        (
+            fundamentals[["ticker", "year", "at", "cap", "csho", "ajex"]]
+            .assign(year=lambda x: x["year"] + 1)
+            .rename(
+                columns={
+                    "at": "at_lag",
+                    "cap": "lme",
+                    "csho": "csho_lag",
+                    "ajex": "ajex_lag",
+                }
+            )
         )
+        .groupby(["ticker", "year"])
+        .last()
     )
     fundamentals = fundamentals.merge(
         fundamentals_lags, how="left", on=["ticker", "year"]
-    ).assign(
-        ni=lambda x: np.log(1 + x["csho"] * x["ajex"])
-        - np.log(1 + x["csho_lag"] * x["ajex_lag"])
     )
     fundamentals = fundamentals.replace([np.inf, -np.inf], np.nan)
     fundamentals.fillna(0, inplace=True)
+    fundamentals["ni"] = (
+        np.log(1 + fundamentals["csho"] * fundamentals["ajex"])
+        - np.log(1 + fundamentals["csho_lag"] * fundamentals["ajex_lag"])
+    ).fillna(0)
     fundamentals["investment"] = (df["at_lag"] - df["at"]) / df["at_lag"]
     fundamentals["beta"] = df["beta"]
     fundamentals["oa"] = (
@@ -525,6 +540,9 @@ def process_compustat(save=False):
     # fundamentals['d2p'] = df['divamty'] / df['lme']
 
     fundamentals.fillna(0, inplace=True)
+
+    # Drop ticker column
+    fundamentals = fundamentals.drop(columns=["ticker"])
 
     if save:
         print(f"Saving characteristics")
