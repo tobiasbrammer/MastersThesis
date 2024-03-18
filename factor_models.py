@@ -75,7 +75,7 @@ def run_factor_models():
     factor_list = [5]
     sizeCovarianceWindow = 252
     sizeWindow = [60]
-    intitialOOSYear = 2000
+    initialOOSYear = 2000
     df = pd.read_parquet("daily_data.parquet")
 
     # Fix NaN values
@@ -87,7 +87,7 @@ def run_factor_models():
     df = df[1:]
 
     # Run PCA
-    pca(factor_list, sizeCovarianceWindow, sizeWindow, intitialOOSYear, df)
+    pca(factor_list, sizeCovarianceWindow, sizeWindow, initialOOSYear, df)
 
     # Run IPCA
     run_ipca(listFactors=factor_list, sizeWindow=sizeWindow, capProportion=[0.001])
@@ -100,11 +100,11 @@ PCA
 """
 
 
-def pca(factor_list: list, sizeCovarianceWindow, sizeWindow, intitialOOSYear, df):
+def pca(factor_list: list, sizeCovarianceWindow, sizeWindow, initialOOSYear, df):
     # Get returns from data
     Rdaily = np.array(df.copy().reset_index(drop=True))
     T, N = Rdaily.shape
-    firstOOSDailyIdx = np.argmax(df.index.year >= intitialOOSYear)
+    firstOOSDailyIdx = np.argmax(df.index.year >= initialOOSYear)
     factor_list = factor_list
 
     start_time = time.time()
@@ -349,7 +349,7 @@ def preprocessDailyReturns(
 
     # restrict returns data to only cover ticker that we have characteristics data for
     tmask = np.load(
-        os.path.join(logdir, "factor_data/MonthlyDataTickers.npy"), allow_pickle=True
+        os.path.join(logdir, "factor_data/MonthlyDataPermno.npy"), allow_pickle=True
     )
     data = data[:, np.isin(ticker, tmask)]
     ticker = tmask
@@ -1065,7 +1065,9 @@ class IPCA:
                             ].copy()
                             sparse_temp[idxs_days_month, :] = sparse_residuals_month
                             sparse_oos_residuals[:, mask2[month - 1, :]] = sparse_temp
-                            factorsOOS[idxs_days_month, :] = factors_month.T
+                            factorsOOS[idxs_days_month, :] = (
+                                factors_month.T
+                            )  # ValueError: shape mismatch: value array of shape (0,3) could not be broadcast to indexing result of shape (0,0)
 
                             Tprime, Nprime = R_month_clean.shape
                             MatrixFull = np.zeros((Tprime, N, N))
@@ -1447,7 +1449,7 @@ Fama French
 """
 
 
-def run_FF(sizeWindow: list, intitialOOSYear: int, capProportion: list):
+def run_FF(sizeWindow: list, initialOOSYear: int, capProportion: list):
     import wrds_function
 
     print("Loading characteristics data")
@@ -1468,7 +1470,7 @@ def run_FF(sizeWindow: list, intitialOOSYear: int, capProportion: list):
                 f"Running Fama French for window size {sizeWindow}, cap proportion {capProportion}"
             )
             ff.OOSRollingWindowPermnos(
-                initialOOSYear=intitialOOSYear,
+                initialOOSYear=initialOOSYear,
                 sizeWindow=sizeWindow,
                 cap=capProportion,
                 save=True,
@@ -1569,8 +1571,8 @@ class FamaFrench:
                     ),
                     axis=0,
                 ).ravel()
-#                print(idxsNotMissingValues.shape, mask[monthlyIdx, :].shape)
-#                print(self.monthlyDates[monthlyIdx], OOSDailyDates[t])
+                #                print(idxsNotMissingValues.shape, mask[monthlyIdx, :].shape)
+                #                print(self.monthlyDates[monthlyIdx], OOSDailyDates[t])
                 idxsSelected = idxsNotMissingValues * mask[monthlyIdx, :]
                 notmissingOOS[t] = np.sum(idxsNotMissingValues)
 
@@ -1648,6 +1650,7 @@ class FamaFrench:
                 print(f"Finished! Cap: {cap}, factor: {factor}")
             if save:
                 print(f"Saving")
+                os.makedirs(self._logdir, exist_ok=True)
                 residuals_mtx_filename = (
                     f"DailyFamaFrench_OOSMatrixresiduals"
                     + f"_{factor}_factors_{initialOOSYear}_initialOOSYear_{sizeWindow}_rollingWindow_{cap}_Cap.npy"
