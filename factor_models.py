@@ -1573,17 +1573,24 @@ class FamaFrench:
                 ).ravel()
                 #                print(idxsNotMissingValues.shape, mask[monthlyIdx, :].shape)
                 #                print(self.monthlyDates[monthlyIdx], OOSDailyDates[t])
+
+                if monthlyIdx >= len(mask):
+                    monthlyIdx = len(mask) - 1  # ToDo: Hack
+
                 idxsSelected = idxsNotMissingValues * mask[monthlyIdx, :]
+
+                # idxsSelected = idxsNotMissingValues * mask[monthlyIdx, :]
                 notmissingOOS[t] = np.sum(idxsNotMissingValues)
 
                 if t % 100 == 0 and printOnConsole:
+                    print(t)
                     print(
                         f"At date {OOSDailyDates[t]}, Not-missing permnos: {notmissingOOS[t]}, "
                         f"Permnos with cap {np.sum(mask[monthlyIdx,:])}, Selected: {sum(idxsSelected)}"
                     )
-                    print(
-                        np.sum(idxsSelected) - np.sum(assetsToConsider * idxsSelected)
-                    )
+                    # print(
+                    #     np.sum(idxsSelected) - np.sum(assetsToConsider * idxsSelected)
+                    # )
                 if factor == 0:
                     residualsOOS[t : (t + 1), idxsSelected] = Rdaily[
                         (t + firstOOSDailyIdx) : (t + firstOOSDailyIdx + 1),
@@ -1655,6 +1662,7 @@ class FamaFrench:
                     f"DailyFamaFrench_OOSMatrixresiduals"
                     + f"_{factor}_factors_{initialOOSYear}_initialOOSYear_{sizeWindow}_rollingWindow_{cap}_Cap.npy"
                 )
+                os.makedirs(os.path.dirname(self._logdir), exist_ok=True)
                 np.save(
                     os.path.join(self._logdir, residuals_mtx_filename),
                     residualsMatricesOOS,
