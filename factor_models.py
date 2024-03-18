@@ -76,6 +76,7 @@ def run_factor_models():
     sizeCovarianceWindow = 252
     sizeWindow = [60]
     initialOOSYear = 2000
+    capProportion = [0.001]
     df = pd.read_parquet("daily_data.parquet")
 
     # Fix NaN values
@@ -90,7 +91,16 @@ def run_factor_models():
     pca(factor_list, sizeCovarianceWindow, sizeWindow, initialOOSYear, df)
 
     # Run IPCA
-    run_ipca(listFactors=factor_list, sizeWindow=sizeWindow, capProportion=[0.001])
+    run_ipca(
+        listFactors=factor_list, sizeWindow=sizeWindow, capProportion=capProportion
+    )
+
+    # Run Fama French
+    factor_models.run_FF(
+        sizeWindow=sizeWindow,
+        capProportion=capProportion,
+        initialOOSYear=initialOOSYear,
+    )
 
     return
 
@@ -106,6 +116,9 @@ def pca(factor_list: list, sizeCovarianceWindow, sizeWindow, initialOOSYear, df)
     T, N = Rdaily.shape
     firstOOSDailyIdx = np.argmax(df.index.year >= initialOOSYear)
     factor_list = factor_list
+
+    # Only one window size
+    sizeWindow = sizeWindow[0]
 
     start_time = time.time()
 
@@ -250,7 +263,7 @@ def run_ipca(listFactors: list, sizeWindow: list, capProportion: list):
                 initialMonths=210,  # 210
                 sizeWindow=sizeWindow,
                 CapProportion=capProportion,
-                maxIter=5000,
+                maxIter=1024,
                 weighted=False,
                 save=True,
                 save_beta=False,
@@ -1493,7 +1506,7 @@ class FamaFrench:
         dailyData = np.load(pathDailyData, allow_pickle=True)
         monthlyData = np.load(pathMonthlyData, allow_pickle=True)
         self.monthlyData = monthlyData["data"]
-        self.dailyData = dailyData["data"]
+        self.dailyData = dailyData
         self.dailyDates = pd.to_datetime(dailyData["date"])
         self.monthlyDates = pd.to_datetime(monthlyData["date"])
 
@@ -1518,7 +1531,7 @@ class FamaFrench:
         cap=0.01,
         listFactors=list(range(8)),
     ):
-        Rdaily = self.dailyData.copy()  # np.nan_to_num(self.dailyData)
+        Rdaily = np.nan_to_num(self.dailyData["data"])
         T, N = Rdaily.shape
         firstOOSDailyIdx = np.argmax(self.dailyDates.year >= initialOOSYear)
         firstOOSMonthlyIdx = np.argmax(self.monthlyDates.year >= initialOOSYear)
@@ -1583,7 +1596,6 @@ class FamaFrench:
                 notmissingOOS[t] = np.sum(idxsNotMissingValues)
 
                 if t % 100 == 0 and printOnConsole:
-                    print(t)
                     print(
                         f"At date {OOSDailyDates[t]}, Not-missing permnos: {notmissingOOS[t]}, "
                         f"Permnos with cap {np.sum(mask[monthlyIdx,:])}, Selected: {sum(idxsSelected)}"
