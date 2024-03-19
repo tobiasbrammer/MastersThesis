@@ -96,7 +96,7 @@ def run_factor_models():
     )
 
     # Run Fama French
-    factor_models.run_FF(
+    run_FF(
         sizeWindow=sizeWindow,
         capProportion=capProportion,
         initialOOSYear=initialOOSYear,
@@ -392,7 +392,7 @@ class IPCA:
         monthlyData = np.load(pathMonthlyData, allow_pickle=True)
         dailyData = np.load(pathDailyData, allow_pickle=True)
         self.monthlyData = np.nan_to_num(monthlyData["data"])
-        self.dailyData = dailyData
+        self.dailyData = np.nan_to_num(dailyData["data"])
         self.monthlyDataUnnormalized = np.load(
             pathMonthlyDataUnnormalized, allow_pickle=True
         )["data"]
@@ -737,8 +737,8 @@ class IPCA:
             )
         )
         print(f"firstidx {firstOOSDailyIdx}")
-        print(f"self.dailyData.shape[0] {self.dailyData['data'].shape[0]}")
-        Rdaily = self.dailyData["data"][firstOOSDailyIdx:, :]
+        print(f"self.dailyData.shape[0] {self.dailyData.shape[0]}")
+        Rdaily = self.dailyData[firstOOSDailyIdx:, :]
         sharpesFactors = np.zeros(len(listFactors))
         counter = 0
 
