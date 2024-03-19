@@ -1,6 +1,16 @@
+import factor_models
 import factor_models as fm
-import wrds_function
+import wrds_function as wrds
 
-wrds_function.process_compustat(save=True)
+listFactors = [5]
+sizeCovarianceWindow = 252
+sizeWindow = [60]
+initialOOSYear = 2000
+capProportion = [0.001]
 
-fm.run_ipca()
+# wrds.process_compustat(save=True)
+
+
+# factor_models.run_factor_models()
+
+fm.run_factor_models()

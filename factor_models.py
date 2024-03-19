@@ -75,7 +75,8 @@ def run_factor_models():
     factor_list = [5]
     sizeCovarianceWindow = 252
     sizeWindow = [60]
-    intitialOOSYear = 2000
+    initialOOSYear = 2000
+    capProportion = [0.001]
     df = pd.read_parquet("daily_data.parquet")
 
     # Fix NaN values
@@ -87,10 +88,19 @@ def run_factor_models():
     df = df[1:]
 
     # Run PCA
-    pca(factor_list, sizeCovarianceWindow, sizeWindow, intitialOOSYear, df)
+    pca(factor_list, sizeCovarianceWindow, sizeWindow, initialOOSYear, df)
 
     # Run IPCA
-    run_ipca(listFactors=factor_list, sizeWindow=sizeWindow, capProportion=[0.001])
+    run_ipca(
+        listFactors=factor_list, sizeWindow=sizeWindow, capProportion=capProportion
+    )
+
+    # Run Fama French
+    run_FF(
+        sizeWindow=sizeWindow,
+        capProportion=capProportion,
+        initialOOSYear=initialOOSYear,
+    )
 
     return
 
@@ -100,12 +110,15 @@ PCA
 """
 
 
-def pca(factor_list: list, sizeCovarianceWindow, sizeWindow, intitialOOSYear, df):
+def pca(factor_list: list, sizeCovarianceWindow, sizeWindow, initialOOSYear, df):
     # Get returns from data
     Rdaily = np.array(df.copy().reset_index(drop=True))
     T, N = Rdaily.shape
-    firstOOSDailyIdx = np.argmax(df.index.year >= intitialOOSYear)
+    firstOOSDailyIdx = np.argmax(df.index.year >= initialOOSYear)
     factor_list = factor_list
+
+    # Only one window size
+    sizeWindow = sizeWindow[0]
 
     start_time = time.time()
 
@@ -250,7 +263,7 @@ def run_ipca(listFactors: list, sizeWindow: list, capProportion: list):
                 initialMonths=210,  # 210
                 sizeWindow=sizeWindow,
                 CapProportion=capProportion,
-                maxIter=5000,
+                maxIter=1024,
                 weighted=False,
                 save=True,
                 save_beta=False,
@@ -349,7 +362,7 @@ def preprocessDailyReturns(
 
     # restrict returns data to only cover ticker that we have characteristics data for
     tmask = np.load(
-        os.path.join(logdir, "factor_data/MonthlyDataTickers.npy"), allow_pickle=True
+        os.path.join(logdir, "factor_data/MonthlyDataPermno.npy"), allow_pickle=True
     )
     data = data[:, np.isin(ticker, tmask)]
     ticker = tmask
@@ -379,7 +392,7 @@ class IPCA:
         monthlyData = np.load(pathMonthlyData, allow_pickle=True)
         dailyData = np.load(pathDailyData, allow_pickle=True)
         self.monthlyData = np.nan_to_num(monthlyData["data"])
-        self.dailyData = dailyData
+        self.dailyData = np.nan_to_num(dailyData["data"])
         self.monthlyDataUnnormalized = np.load(
             pathMonthlyDataUnnormalized, allow_pickle=True
         )["data"]
@@ -724,8 +737,8 @@ class IPCA:
             )
         )
         print(f"firstidx {firstOOSDailyIdx}")
-        print(f"self.dailyData.shape[0] {self.dailyData['data'].shape[0]}")
-        Rdaily = self.dailyData["data"][firstOOSDailyIdx:, :]
+        print(f"self.dailyData.shape[0] {self.dailyData.shape[0]}")
+        Rdaily = self.dailyData[firstOOSDailyIdx:, :]
         sharpesFactors = np.zeros(len(listFactors))
         counter = 0
 
@@ -1065,7 +1078,9 @@ class IPCA:
                             ].copy()
                             sparse_temp[idxs_days_month, :] = sparse_residuals_month
                             sparse_oos_residuals[:, mask2[month - 1, :]] = sparse_temp
-                            factorsOOS[idxs_days_month, :] = factors_month.T
+                            factorsOOS[idxs_days_month, :] = (
+                                factors_month.T
+                            )  # ValueError: shape mismatch: value array of shape (0,3) could not be broadcast to indexing result of shape (0,0)
 
                             Tprime, Nprime = R_month_clean.shape
                             MatrixFull = np.zeros((Tprime, N, N))
@@ -1447,7 +1462,7 @@ Fama French
 """
 
 
-def run_FF(sizeWindow: list, intitialOOSYear: int, capProportion: list):
+def run_FF(sizeWindow: list, initialOOSYear: int, capProportion: list):
     import wrds_function
 
     print("Loading characteristics data")
@@ -1468,7 +1483,7 @@ def run_FF(sizeWindow: list, intitialOOSYear: int, capProportion: list):
                 f"Running Fama French for window size {sizeWindow}, cap proportion {capProportion}"
             )
             ff.OOSRollingWindowPermnos(
-                initialOOSYear=intitialOOSYear,
+                initialOOSYear=initialOOSYear,
                 sizeWindow=sizeWindow,
                 cap=capProportion,
                 save=True,
@@ -1491,7 +1506,7 @@ class FamaFrench:
         dailyData = np.load(pathDailyData, allow_pickle=True)
         monthlyData = np.load(pathMonthlyData, allow_pickle=True)
         self.monthlyData = monthlyData["data"]
-        self.dailyData = dailyData["data"]
+        self.dailyData = dailyData
         self.dailyDates = pd.to_datetime(dailyData["date"])
         self.monthlyDates = pd.to_datetime(monthlyData["date"])
 
@@ -1516,7 +1531,7 @@ class FamaFrench:
         cap=0.01,
         listFactors=list(range(8)),
     ):
-        Rdaily = self.dailyData.copy()  # np.nan_to_num(self.dailyData)
+        Rdaily = np.nan_to_num(self.dailyData["data"])
         T, N = Rdaily.shape
         firstOOSDailyIdx = np.argmax(self.dailyDates.year >= initialOOSYear)
         firstOOSMonthlyIdx = np.argmax(self.monthlyDates.year >= initialOOSYear)
@@ -1569,9 +1584,15 @@ class FamaFrench:
                     ),
                     axis=0,
                 ).ravel()
-#                print(idxsNotMissingValues.shape, mask[monthlyIdx, :].shape)
-#                print(self.monthlyDates[monthlyIdx], OOSDailyDates[t])
+                #                print(idxsNotMissingValues.shape, mask[monthlyIdx, :].shape)
+                #                print(self.monthlyDates[monthlyIdx], OOSDailyDates[t])
+
+                if monthlyIdx >= len(mask):
+                    monthlyIdx = len(mask) - 1  # ToDo: Hack
+
                 idxsSelected = idxsNotMissingValues * mask[monthlyIdx, :]
+
+                # idxsSelected = idxsNotMissingValues * mask[monthlyIdx, :]
                 notmissingOOS[t] = np.sum(idxsNotMissingValues)
 
                 if t % 100 == 0 and printOnConsole:
@@ -1579,9 +1600,9 @@ class FamaFrench:
                         f"At date {OOSDailyDates[t]}, Not-missing permnos: {notmissingOOS[t]}, "
                         f"Permnos with cap {np.sum(mask[monthlyIdx,:])}, Selected: {sum(idxsSelected)}"
                     )
-                    print(
-                        np.sum(idxsSelected) - np.sum(assetsToConsider * idxsSelected)
-                    )
+                    # print(
+                    #     np.sum(idxsSelected) - np.sum(assetsToConsider * idxsSelected)
+                    # )
                 if factor == 0:
                     residualsOOS[t : (t + 1), idxsSelected] = Rdaily[
                         (t + firstOOSDailyIdx) : (t + firstOOSDailyIdx + 1),
@@ -1648,10 +1669,12 @@ class FamaFrench:
                 print(f"Finished! Cap: {cap}, factor: {factor}")
             if save:
                 print(f"Saving")
+                os.makedirs(self._logdir, exist_ok=True)
                 residuals_mtx_filename = (
                     f"DailyFamaFrench_OOSMatrixresiduals"
                     + f"_{factor}_factors_{initialOOSYear}_initialOOSYear_{sizeWindow}_rollingWindow_{cap}_Cap.npy"
                 )
+                os.makedirs(os.path.dirname(self._logdir), exist_ok=True)
                 np.save(
                     os.path.join(self._logdir, residuals_mtx_filename),
                     residualsMatricesOOS,
