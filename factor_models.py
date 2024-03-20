@@ -210,10 +210,11 @@ def run_factor_models(
     print("Preprocessing daily returns")
     preprocessDailyReturns()
     print("")
+
     print("Initializing PCA factor model")
+    start_time_pca = time.time()
     print("Running PCA")
     print("")
-    start_time_pca = time.time()
     pca = PCA(logdir=os.path.join("factor_data/residuals", "pca"))
     for prop in capProportion:  # , 0.001]:
         for size in sizeWindow:  # 15*12]:
@@ -225,9 +226,10 @@ def run_factor_models(
             )
     print("")
     print(f"Took {(time.time() - start_time_pca) / 60} minutes to run PCA")
+
     print("")
-    start_time_ipca = time.time()
     print("Initializing IPCA factor model")
+    start_time_ipca = time.time()
     print("Running IPCA")
     print("")
     ipca = IPCA(logdir=os.path.join("factor_data", "residuals", "ipca"))
@@ -252,8 +254,11 @@ def run_factor_models(
             )
     print("")
     print(f"Took {(time.time() - start_time_ipca) / 60} minutes to run IPCA")
+
     print("")
     print("Initializing Fama French factor model")
+    if not os.path.exists("factor_data/FamaFrench8Daily.csv"):
+        process_ff()
     start_time_ff = time.time()
     print("Running Fama French")
     print("")
@@ -271,6 +276,7 @@ def run_factor_models(
             )
     print("")
     print(f"Took {(time.time() - start_time_ff) / 60} minutes to run Fama French")
+
     print("")
     print(f"Took {(time.time() - start_time) / 60} minutes to run factor models")
     print("")
