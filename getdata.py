@@ -42,12 +42,16 @@ start = time()
 #     del df, file, file_path
 
 # %% ################## PRICES ##################
-files = [f for f in os.listdir("prices_raw_parquet") if f.endswith(".parquet")]
+files = [
+    f for f in os.listdir("saxo_data/prices_raw_parquet") if f.endswith(".parquet")
+]
 
 # Define the pattern using regular expression
 pattern = re.compile(r"_(.*?)-")
 # For files that begin with prices
-prices = sorted([f for f in files if f.startswith("prices")])  # Make sure the files are prices
+prices = sorted(
+    [f for f in files if f.startswith("prices")]
+)  # Make sure the files are prices
 
 # Create an empty list to store DataFrames
 df_list = []
@@ -58,7 +62,7 @@ print("Reading files...")
 # Iterate over each file, add it to df_list
 for file in prices:
     # Construct the file path
-    file_path = os.path.join("prices_raw_parquet", file)
+    file_path = os.path.join("saxo_data/prices_raw_parquet", file)
     # Read CSV file and try to parse dates
     df_temp = pl.scan_parquet(file_path).with_columns(
         **{col: pl.col(col).cast(pl.Float32) for col in numeric_cols}
@@ -114,7 +118,13 @@ del df_list
 print("Getting CoACS...")
 pattern = re.compile(r"_(.*?)-")
 # For files that start with coacs
-coacs = [f for f in [f for f in os.listdir("coacs_raw_parquet") if f.endswith(".parquet")] if f.startswith("coacs")]
+coacs = [
+    f
+    for f in [
+        f for f in os.listdir("saxo_data/coacs_raw_parquet") if f.endswith(".parquet")
+    ]
+    if f.startswith("coacs")
+]
 
 col_transforms = [
     ("UIC", pl.Int64),
@@ -141,7 +151,7 @@ df_list = []
 # Iterate over each file, add it to df_list
 for file in coacs:
     # Construct the file path
-    file_path = os.path.join("coacs_raw_parquet", file)
+    file_path = os.path.join("saxo_data/coacs_raw_parquet", file)
     # Read CSV file and try to parse dates
     df_temp = pl.scan_parquet(file_path)
     ticker = re.search(pattern, file).group(1)
@@ -182,7 +192,7 @@ for file in coacs:
         "StartDate",
         "Comment",
         "EntitlementId",
-        "timestamp"
+        "timestamp",
     )
     # Add df_temp to df_list
     df_list.append(df_temp)
@@ -280,7 +290,7 @@ lf_intraday = (
             .alias("return_4h"),
             (pl.col("log_close") - pl.col("log_close").shift(390))
             .over(pl.col("ticker"))
-            .alias("return_1d")
+            .alias("return_1d"),
         ]
     )
 )
@@ -362,8 +372,6 @@ lf_daily = (
 # %% ################## Save to parquet ##################
 print("Saving daily returns to parquet...")
 lf_daily.collect().write_parquet("daily.parquet")
-
-lf_tickers = lf_intraday.select(["ticker"]).distinct().collect().write_csv("tickers.csv")
 
 print("")
 print("")
