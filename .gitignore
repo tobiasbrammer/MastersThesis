@@ -36,12 +36,12 @@ Thumbs.db
 
 # Data #
 ######################
-coacs.parquet
-prices.parquet
+saxo_data/coacs.parquet
+saxo_data/prices.parquet
 prices_daily.parquet
-intraday.parquet
-daily.parquet
-daily_data.parquet
+saxo_data/intraday.parquet
+saxo_data/daily.parquet
+saxo_data/daily_data.parquet
 
 # Misc #
 ######################

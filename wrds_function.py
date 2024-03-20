@@ -1,11 +1,14 @@
 # Get data from WRDS
-def get_daily_crsp_data(start_date="1998-12-31", end_date="2024-01-01", save=True):
+def get_daily_crsp_data(
+    start_date="1969-12-31", end_date="2024-01-01", save=True, pivot=False
+):
     from functions import get_risk_free_rate
     from tqdm import tqdm
     import pandas as pd
     import numpy as np
     from sqlalchemy import create_engine
     import warnings
+    import os
 
     warnings.filterwarnings("ignore", category=FutureWarning, module="yfinance")
 
@@ -21,7 +24,11 @@ def get_daily_crsp_data(start_date="1998-12-31", end_date="2024-01-01", save=Tru
 
     # Print available tables
 
-    permnos = np.load("factor_data/MonthlyDataPermno.npy")
+    permnos = (
+        pd.read_parquet("factor_data/TickersPermnos.parquet")["permno"]
+        .unique()
+        .tolist()
+    )
 
     rf = pd.DataFrame(get_risk_free_rate(start_date, end_date))
 
@@ -35,8 +42,10 @@ def get_daily_crsp_data(start_date="1998-12-31", end_date="2024-01-01", save=Tru
     batches = np.ceil(len(permnos) / batch_size).astype(int)
 
     daily_rets = pd.DataFrame()
-
-    for j in tqdm(range(1, batches + 1), miniters=25):
+    print("")
+    print(f"Getting daily returns in batches of {batch_size} tickers at a time")
+    print("")
+    for j in tqdm(range(1, batches + 1), miniters=1):
 
         permno_batch = permnos[
             ((j - 1) * batch_size) : (min(j * batch_size, len(permnos)))
@@ -45,7 +54,7 @@ def get_daily_crsp_data(start_date="1998-12-31", end_date="2024-01-01", save=Tru
         permno_batch_formatted = ", ".join(f"'{permno}'" for permno in permno_batch)
         permno_string = f"({permno_batch_formatted})"
 
-        crsp_daily_sub_query = f"""SELECT permno, dlycaldt AS date, dlyret AS ret
+        crsp_daily_sub_query = f"""SELECT permno, dlycaldt AS date, dlyret AS ret, dlyvol AS vol
             FROM crsp.dsf_v2 AS msf
             WHERE permno IN {permno_string}
             AND dlycaldt BETWEEN '{start_date}' AND '{end_date}'"""
@@ -60,12 +69,9 @@ def get_daily_crsp_data(start_date="1998-12-31", end_date="2024-01-01", save=Tru
         if not crsp_daily_sub.empty:
 
             crsp_daily_sub = (
-                crsp_daily_sub.assign(
-                    month=lambda x: x["date"].dt.to_period("M").dt.to_timestamp()
-                )
-                .merge(rf[["date", "rf"]], on="date", how="left")
-                .assign(ret_excess=lambda x: ((x["ret"] - x["rf"]).clip(lower=-1)))
-                .get(["permno", "date", "month", "ret_excess"])
+                crsp_daily_sub.merge(rf[["date", "rf"]], on="date", how="left")
+                .assign(returns=lambda x: ((x["ret"] - x["rf"]).clip(lower=-1)))
+                .get(["permno", "date", "returns", "vol"])
             )
 
             if j == 1:
@@ -73,16 +79,30 @@ def get_daily_crsp_data(start_date="1998-12-31", end_date="2024-01-01", save=Tru
             else:
                 daily_rets = pd.concat([daily_rets, crsp_daily_sub], ignore_index=True)
 
+    wrds.dispose()
+
+    daily_rets.rename(columns={"returns": "return"}, inplace=True)
+
+    if pivot:
+        daily_rets = daily_rets.pivot(columns="permno")
+
     if save:
-        print(f"Saving daily CRSP data")
+        if not os.path.exists("factor_data"):
+            os.makedirs("factor_data")
+        print(f"Saving daily returns in factor_data/daily_data")
         # Save as npz
-        np.savez_compressed("daily_data.npz", daily_rets=daily_rets)
+        np.savez_compressed(
+            "factor_data/daily_data.npz",
+            data=daily_rets.values,
+            columns=daily_rets.columns,
+            allow_pickle=True,
+        )
         return
     else:
         return daily_rets
 
 
-def get_wrds(start_date="1970-01-01", end_date="2024-01-01"):
+def get_wrds(start_date="1969-12-31", end_date="2024-01-01"):
     # ToDo: Figure out why there are so many rows. Seems like some part of the code uses daily data...
     from pandas.tseries.offsets import MonthEnd
     import pandas as pd
@@ -107,7 +127,11 @@ def get_wrds(start_date="1970-01-01", end_date="2024-01-01"):
         from statsmodels.formula.api import ols
 
         # Read tickers from file
-        tickers = pd.read_csv("tickers.csv")["ticker"].tolist()
+        tickers = (
+            pd.read_parquet("factor_data/TickersPermnos.parquet")["ticker"]
+            .unique()
+            .tolist()
+        )
 
         crsp_monthly_query = f"""
         SELECT msf.ticker, msf.permno, msf.mthcaldt AS date, 
@@ -457,9 +481,6 @@ def get_wrds(start_date="1970-01-01", end_date="2024-01-01"):
     # Close connection to wrds odbc database
     wrds.dispose()
 
-    # Save in ipca_test_data/comp.parquet
-    # comp.to_parquet('ipca_test_data/comp.parquet')
-
     return comp
 
 
@@ -581,8 +602,13 @@ def process_compustat(save=False):
     fundamentals = fundamentals.drop(columns=["ticker"])
 
     if save:
-        print(f"Saving characteristics")
-        fundamentals.to_parquet("factor_data/MonthlyData.parquet")
+        print(f"Saving characteristics as factor_data/monthly_data.npz")
+        np.savez_compressed(
+            "factor_data/monthly_data.npz",
+            data=fundamentals,
+            columns=fundamentals.columns,
+            allow_pickle=True,
+        )
         return
 
     return fundamentals
