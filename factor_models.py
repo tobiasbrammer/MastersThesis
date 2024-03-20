@@ -71,12 +71,21 @@ def get_risk_free_rate():
 
 
 def get_sharpe_tangencyPortfolio(df):  # returns has shape TxN
+    df = np.nan_to_num(df, copy=False)
     if df.shape[1] == 1:
         return np.abs(np.mean(df)) / np.std(df)
     else:
         mean_ret = np.mean(df, axis=0, keepdims=True)
         cov_ret = np.cov(df.T)
-        return float(np.sqrt(mean_ret @ np.linalg.solve(cov_ret, mean_ret.T)))
+        cov_ret += np.eye(cov_ret.shape[0]) * 1e-8
+    try:
+        res = float(np.sqrt(mean_ret @ np.linalg.solve(cov_ret, mean_ret.T)))
+    except:
+        weights = np.linalg.pinv(cov_ret) @ mean_ret.T  # Pseudo-inverse
+        weights /= weights.sum()  # Normalize weights
+        res = float(np.sqrt(mean_ret @ weights))
+
+    return res
 
 
 def preprocessMonthlyData(
@@ -175,85 +184,102 @@ Run factor models
 """
 
 
-def run_factor_models():
-    # Initialize parameters for PCA
-    factor_list = [1]
-    sizeCovarianceWindow = 252
-    sizeWindow = [60]
-    initialOOSYear = 2000
-    capProportion = [0.001]
+def run_factor_models(
+    listFactors=[0, 1, 3, 5, 8, 10, 15],
+    sizeCovarianceWindow=252,
+    sizeWindow=[60],
+    initialOOSYear=2000,
+    capProportion=[0.01],
+):
 
-    print("")
-    print("")
-    print("")
-    print("Running PCA")
-    print("")
-    print("")
-    print("")
-
-    # Run PCA
-    # run_pca(listFactors=factor_list, sizeWindow=sizeWindow, capProportion=capProportion)
-
-    print("")
-    print("")
-    print("")
-    print("Running IPCA")
-    print("")
-    print("")
-    print("")
-
-    # Run IPCA
-    # run_ipca(listFactors=factor_list, sizeWindow=sizeWindow, capProportion=capProportion)
-
-    print("")
-    print("")
-    print("")
-    print("Running Fama French")
-    print("")
-    print("")
-    print("")
-
-    # Run Fama French
-    run_FF(
-        sizeWindow=sizeWindow,
-        capProportion=capProportion,
-        initialOOSYear=initialOOSYear,
-    )
-
-    return
-
-
-"""
-PCA
-"""
-
-
-def run_pca(listFactors: list, sizeWindow: list, capProportion: list):
+    import time
     import wrds_function
 
+    start_time = time.time()
     print("Loading characteristics data")
+
     if not os.path.exists("factor_data/monthly_data.npz"):
         wrds_function.process_compustat(save=True)
+
     MonthlyData = np.load("factor_data/monthly_data.npz", allow_pickle=True)
+
     print("Loading daily returns")
     print("Preprocessing monthly characteristics data")
     preprocessMonthlyData(MonthlyData, normalizeCharacteristics=True)
     preprocessMonthlyData(MonthlyData, normalizeCharacteristics=False)
     print("Preprocessing daily returns")
     preprocessDailyReturns()
+    print("")
     print("Initializing PCA factor model")
+    print("Running PCA")
+    print("")
+    start_time_pca = time.time()
     pca = PCA(logdir=os.path.join("factor_data/residuals", "pca"))
-    for capProportion in capProportion:  # , 0.001]:
-        for sizeWindow in sizeWindow:  # 15*12]:
-            print(
-                f"Running IPCA for window size {sizeWindow}, cap proportion {capProportion}"
-            )
+    for prop in capProportion:  # , 0.001]:
+        for size in sizeWindow:  # 15*12]:
+            print(f"Running IPCA for window size {size}, cap proportion {prop}")
             pca.OOSRollingWindowPermnos(
                 listFactors=listFactors,  # [0, 1, 3, 5, 8, 10, 15]
                 sizeWindow=sizeWindow,
-                CapProportion=capProportion,
+                CapProportion=prop,
             )
+    print("")
+    print(f"Took {(time.time() - start_time_pca) / 60} minutes to run PCA")
+    print("")
+    start_time_ipca = time.time()
+    print("Initializing IPCA factor model")
+    print("Running IPCA")
+    print("")
+    ipca = IPCA(logdir=os.path.join("factor_data", "residuals", "ipca"))
+    for prop in capProportion:  # , 0.001]:
+        for size in sizeWindow:  # 15*12]:
+            print(f"Running IPCA for window size {size}, cap proportion {prop}")
+            ipca.DailyOOSRollingWindow(
+                listFactors=listFactors,  # [0, 1, 3, 5, 8, 10, 15]
+                initialMonths=210,  # 210
+                sizeWindow=size,
+                CapProportion=prop,
+                maxIter=1024,
+                weighted=False,
+                save=True,
+                save_beta=False,
+                save_gamma=False,
+                save_rmonth=False,
+                save_mask=False,
+                save_sparse_weights_month=False,
+                skip_oos=False,
+                reestimationFreq=12,
+            )
+    print("")
+    print(f"Took {(time.time() - start_time_ipca) / 60} minutes to run IPCA")
+    print("")
+    print("Initializing Fama French factor model")
+    start_time_ff = time.time()
+    print("Running Fama French")
+    print("")
+    ff = FamaFrench(logdir=os.path.join("factor_data/residuals", "fama_french"))
+    for prop in capProportion:  # , 0.001]:
+        for size in sizeWindow:  # 15*12]:
+            print(
+                f"Running Fama French for window size {size}, cap proportion {capProportion}"
+            )
+            ff.OOSRollingWindowPermnos(
+                initialOOSYear=initialOOSYear,
+                sizeWindow=size,
+                cap=prop,
+                save=True,
+            )
+    print("")
+    print(f"Took {(time.time() - start_time_ff) / 60} minutes to run Fama French")
+    print("")
+    print(f"Took {(time.time() - start_time) / 60} minutes to run factor models")
+    print("")
     return
+
+
+"""
+PCA
+"""
 
 
 class PCA:
@@ -282,9 +308,6 @@ class PCA:
         CapProportion=0.01,
         listFactors=[0, 1, 3, 5, 8, 10, 15],
     ):
-        import time
-
-        start_time = time.time()
 
         cap_chosen_idxs = (
             self.monthlyCaps / np.nansum(self.monthlyCaps, axis=1, keepdims=True)
@@ -322,13 +345,17 @@ class PCA:
             print("Filtered by cap!")
             print("Computing residuals")
 
+        # If 0 is in listFactors, remove it
+        if 0 in listFactors:
+            listFactors.remove(0)
+
         for factor in listFactors:
             residualsOOS = np.zeros((T - firstOOSDailyIdx, N), dtype=float)
             residualsMatricesOOS = np.zeros(
                 (T - firstOOSDailyIdx, Ntilde, Ntilde), dtype=np.float32
             )
 
-            for t in tqdm(range(T - firstOOSDailyIdx), miniters=25):
+            for t in tqdm(range(T - firstOOSDailyIdx), miniters=100):
                 # ToDo: They drop the asset if it has a zero return in the period, but nearly all our assets have a zero
                 # ToDo: return so I'll ignore it for now (change == 5670 to == 0 to change back)
                 idxsSelected = ~np.any(
@@ -414,25 +441,27 @@ class PCA:
 
             print(f"Finished for factor {factor}")
 
-            if not os.path.exists("/factor_data/resi"):
-                os.makedirs("/factor_data/outputs")
+            script_dir = os.path.dirname(os.path.abspath(__file__))
 
-            np.save(
+            # Create the directory if it doesn't exist
+            pca_dir = os.path.join(script_dir, "factor_data", "residuals", "pca")
+            os.makedirs(pca_dir, exist_ok=True)
+
+            # Save the NumPy arrays
+            np.savez_compressed(
                 os.path.join(
-                    os.getcwd() + "/factor_data/outputs",
-                    f"OOSResidualsmatrix_PCA_factor{factor}_rollingwindow_{sizeWindow}.npy",
+                    pca_dir,
+                    f"OOSResidualsmatrix_PCA_factor{factor}_rollingwindow_{sizeWindow}.npz",
                 ),
                 residualsMatricesOOS,
             )
-            np.save(
+            np.savez_compressed(
                 os.path.join(
-                    os.getcwd() + "/factor_data/outputs",
-                    f"OOSResiduals_PCA_factor{factor}_rollingwindow_{sizeWindow}.npy",
+                    pca_dir,
+                    f"OOSResiduals_PCA_factor{factor}_rollingwindow_{sizeWindow}.npz",
                 ),
                 residualsOOS,
             )
-
-            print(f"Took {(time.time() - start_time) / 60} minutes to run PCA")
 
         return
 
@@ -565,45 +594,6 @@ IPCA
 """
 
 
-def run_ipca(listFactors: list, sizeWindow: list, capProportion: list):
-    import wrds_function
-
-    print("Loading characteristics data")
-    if not os.path.exists("factor_data/monthly_data.npz"):
-        wrds_function.process_compustat(save=True)
-    MonthlyData = np.load("factor_data/monthly_data.npz", allow_pickle=True)
-    print("Loading daily returns")
-    print("Preprocessing monthly characteristics data")
-    preprocessMonthlyData(MonthlyData, normalizeCharacteristics=True)
-    preprocessMonthlyData(MonthlyData, normalizeCharacteristics=False)
-    print("Preprocessing daily returns")
-    preprocessDailyReturns()
-    print("Initializing IPCA factor model")
-    ipca = IPCA(logdir=os.path.join("factor_data/residuals", "ipca"))
-    for capProportion in capProportion:  # , 0.001]:
-        for sizeWindow in sizeWindow:  # 15*12]:
-            print(
-                f"Running IPCA for window size {sizeWindow}, cap proportion {capProportion}"
-            )
-            ipca.DailyOOSRollingWindow(
-                listFactors=listFactors,  # [0, 1, 3, 5, 8, 10, 15]
-                initialMonths=210,  # 210
-                sizeWindow=sizeWindow,
-                CapProportion=capProportion,
-                maxIter=1024,
-                weighted=False,
-                save=True,
-                save_beta=False,
-                save_gamma=False,
-                save_rmonth=False,
-                save_mask=False,
-                save_sparse_weights_month=False,
-                skip_oos=False,
-                reestimationFreq=12,
-            )
-    return
-
-
 class IPCA:
 
     def __init__(self, logdir=os.getcwd(), individual_feature_dim=40):
@@ -624,7 +614,7 @@ class IPCA:
         self._individual_feature_dim = (
             individual_feature_dim  # this is the number of characteristics, L
         )
-        self._debug = True
+        self._debug = False
         self._logdir = logdir
         self._UNK = np.nan
         self.weight_matrices = []
@@ -1124,7 +1114,12 @@ class IPCA:
                                     - sizeWindow,
                                 )
                                 nIter += 1
-                                dGamma = np.max(np.abs(self._Gamma - Gamma))
+                                dGamma = np.max(
+                                    np.abs(
+                                        np.nan_to_num(self._Gamma, copy=False)
+                                        - np.nan_to_num(Gamma, copy=False)
+                                    )
+                                )  # ToDo: Why is every dGamma nan?
                                 self._Gamma = Gamma
                                 if printOnConsole and nIter % printFreq == 0:
                                     print(
@@ -1357,19 +1352,19 @@ class IPCA:
             if save and not skip_oos:
                 rsavepath = os.path.join(
                     self._logdir,
-                    f"IPCA_DailyOOSresiduals_{nFactors}_factors_{initialMonths}_initialMonths_{sizeWindow}_window_{CapProportion}_cap.npy",
+                    f"IPCA_DailyOOSresiduals_{nFactors}_factors_{initialMonths}_initialMonths_{sizeWindow}_window_{CapProportion}_cap.npz",
                 )
                 msavepath = os.path.join(
                     self._logdir,
-                    f"IPCA_DailyMatrixOOSresiduals_{nFactors}_factors_{initialMonths}_initialMonths_{sizeWindow}_window_{CapProportion}_cap.npy",
+                    f"IPCA_DailyMatrixOOSresiduals_{nFactors}_factors_{initialMonths}_initialMonths_{sizeWindow}_window_{CapProportion}_cap.npz",
                 )
                 print(f"Saving {rsavepath}")
                 # Ensure folders exist
                 os.makedirs(os.path.dirname(rsavepath), exist_ok=True)
-                np.save(rsavepath, residualsOOS)
+                np.savez_compressed(rsavepath, residualsOOS)
                 print(f"Saving {msavepath}")
                 os.makedirs(os.path.dirname(msavepath), exist_ok=True)
-                np.save(msavepath, residualsMatricesOOS)
+                np.savez_compressed(msavepath, residualsMatricesOOS)
         if not skip_oos:
             pass
 
@@ -1381,33 +1376,34 @@ Fama French
 """
 
 
-def run_FF(sizeWindow: list, initialOOSYear: int, capProportion: list):
-    import wrds_function
+def process_ff():
+    import pandas as pd
 
-    print("Loading characteristics data")
-    if not os.path.exists("factor_data/monthly_data.npz"):
-        wrds_function.process_compustat(save=True)
-    MonthlyData = np.load("factor_data/monthly_data.npz", allow_pickle=True)
-    print("Loading daily returns")
-    print("Preprocessing monthly characteristics data")
-    preprocessMonthlyData(MonthlyData, normalizeCharacteristics=True)
-    preprocessMonthlyData(MonthlyData, normalizeCharacteristics=False)
-    print("Preprocessing daily returns")
-    preprocessDailyReturns()
-    print("Initializing Fama French factor model")
-    ff = FamaFrench(logdir=os.path.join("factor_data/residuals", "fama_french"))
-    for capProportion in capProportion:  # , 0.001]:
-        for sizeWindow in sizeWindow:  # 15*12]:
-            print(
-                f"Running Fama French for window size {sizeWindow}, cap proportion {capProportion}"
-            )
-            ff.OOSRollingWindowPermnos(
-                initialOOSYear=initialOOSYear,
-                sizeWindow=sizeWindow,
-                cap=capProportion,
-                save=True,
-            )
-    return
+    ff5 = pd.read_csv(
+        "factor_data/F-F_Research_Data_5_Factors_2x3_daily.CSV", header=2, index_col=0
+    )
+
+    mom = pd.read_csv(
+        "factor_data/F-F_Momentum_Factor_daily.CSV", header=11, index_col=0
+    )
+    strev = pd.read_csv(
+        "factor_data/F-F_ST_Reversal_Factor_daily.csv", header=11, index_col=0
+    )
+    ltrev = pd.read_csv(
+        "factor_data/F-F_LT_Reversal_Factor_daily.csv", header=11, index_col=0
+    )
+    factors = [ff5, mom, strev, ltrev]
+
+    for i in range(len(factors)):
+        factors[i].index = factors[i].index.map(str)
+
+    ff8 = pd.concat(factors, axis=1, join="inner")
+    ff8["year"] = pd.to_datetime(ff8.index, format="%Y%m%d").year
+    ff8.index = ff8.index.astype("int")
+    ff8.rename(columns={col: col.strip() for col in ff8.columns}, inplace=True)
+    ff8.drop(columns=["RF"], inplace=True)
+    print(f"ff8 columns are {ff8.columns.tolist()}")
+    ff8.to_csv("factor_data/FamaFrench8Daily.csv")
 
 
 class FamaFrench:
@@ -1437,14 +1433,21 @@ class FamaFrench:
         self.mask = np.zeros(0)
         self.weighted = False
 
-        self.FamaFrenchFiveFactorsDaily = (
-            pd.read_csv(
-                "factor_data/F-F_Research_Data_5_Factors_2x3_daily.CSV",
-                index_col=0,
-                skiprows=3,
-            )
-            / 100
+        self.FamaFrenchFiveFactorsDaily = pd.read_csv(
+            "factor_data/FamaFrench8Daily.csv",
         )
+
+        self.FamaFrenchFiveFactorsYear = self.FamaFrenchFiveFactorsDaily["year"]
+
+        # Drop year from self.FamaFrenchFiveFactorsDaily
+        if "year" in self.FamaFrenchFiveFactorsDaily.columns:
+            self.FamaFrenchFiveFactorsDaily = self.FamaFrenchFiveFactorsDaily.drop(
+                "year", axis=1
+            )
+
+        # Drop the first column of self.FamaFrenchFiveFactorsDaily
+        self.FamaFrenchFiveFactorsDaily = self.FamaFrenchFiveFactorsDaily.iloc[:, 1:]
+
         print(self.FamaFrenchFiveFactorsDaily.head())
 
     def OOSRollingWindowPermnos(
@@ -1460,9 +1463,7 @@ class FamaFrench:
         T, N = Rdaily.shape
         firstOOSDailyIdx = np.argmax(self.dailyDates.year >= initialOOSYear)
         firstOOSMonthlyIdx = np.argmax(self.monthlyDates.year >= initialOOSYear)
-        firstOOSFFDailyIdx = np.argmax(
-            self.FamaFrenchFiveFactorsDaily.index >= initialOOSYear * 10000
-        )
+        firstOOSFFDailyIdx = np.argmax(self.FamaFrenchFiveFactorsYear >= initialOOSYear)
         FamaFrenchDaily = self.FamaFrenchFiveFactorsDaily.to_numpy()
         OOSDailyDates = self.dailyDates[firstOOSDailyIdx:]
         cap_chosen_idxs = (
@@ -1562,7 +1563,10 @@ class FamaFrench:
                     )
 
                     Loadings = np.zeros((N, factor))
-                    Loadings[idxsSelected] = -loadings.T
+                    Loadings[idxsSelected] = (
+                        -loadings.T
+                    )  # ValueError: shape mismatch: value array of shape (267,6) could not be broadcast to indexing result of shape (267,7)
+
                     residualsMatricesOOS[t, :, :Ntilde] = np.diag(
                         idxsSelected[assetsToConsider]
                     )  # np.eye(Ntilde)
@@ -1590,26 +1594,26 @@ class FamaFrench:
             print("Transforming NaNs to nums")
             np.nan_to_num(residualsOOS, copy=False)
             np.nan_to_num(residualsMatricesOOS, copy=False)
-            if printOnConsole:
-                print(f"Finished! Cap: {cap}, factor: {factor}")
+
             if save:
-                print(f"Saving")
                 os.makedirs(self._logdir, exist_ok=True)
                 residuals_mtx_filename = (
                     f"DailyFamaFrench_OOSMatrixresiduals"
-                    + f"_{factor}_factors_{initialOOSYear}_initialOOSYear_{sizeWindow}_rollingWindow_{cap}_Cap.npy"
+                    + f"_{factor}_factors_{initialOOSYear}_initialOOSYear_{sizeWindow}_rollingWindow_{cap}_Cap.npz"
                 )
                 os.makedirs(os.path.dirname(self._logdir), exist_ok=True)
-                np.save(
+                np.savez_compressed(
                     os.path.join(self._logdir, residuals_mtx_filename),
                     residualsMatricesOOS,
                 )
                 residuals_filename = (
                     f"DailyFamaFrench_OOSresiduals"
-                    + f"_{factor}_factors_{initialOOSYear}_initialOOSYear_{sizeWindow}_rollingWindow_{cap}_Cap.npy"
+                    + f"_{factor}_factors_{initialOOSYear}_initialOOSYear_{sizeWindow}_rollingWindow_{cap}_Cap.npz"
                 )
-                np.save(os.path.join(self._logdir, residuals_filename), residualsOOS)
-                print(f"Saved")
+                np.savez_compressed(
+                    os.path.join(self._logdir, residuals_filename), residualsOOS
+                )
+                print(f"Finished! Cap: {cap}, factor: {factor}")
 
 
 if __name__ == "__main__":
