@@ -221,7 +221,7 @@ def run_factor_models(
             print(f"Running IPCA for window size {size}, cap proportion {prop}")
             pca.OOSRollingWindowPermnos(
                 listFactors=listFactors,  # [0, 1, 3, 5, 8, 10, 15]
-                sizeWindow=sizeWindow,
+                sizeWindow=size,
                 CapProportion=prop,
             )
     print("")
