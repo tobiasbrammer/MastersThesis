@@ -9,11 +9,6 @@ from pre_process import *
 #   a) Get residual data for IPCA and Fama-French
 #       - Done for PCA
 
-# 3. We still need to make parallelization work - But it is not needed for now
-
-# 4. How should we handle missing data? E.g. AirBnB (ABNB) only has data from 2021
-#    (vi har 496 aktier, hvoraf 345 har data fra 1999 til 2024)
-#    Possible solution: Set all NaN to 0, as we always run "assets_to_consider (count_nonzero >= 30)"
 ########################################################################################################################
 
 ########################################################################################################################
@@ -84,4 +79,5 @@ print(f'CNNTransformer: \n Sharpe: {results_CNN['CNNTransformer']['sharpe_test']
       f'Std: {results_OU['OU']['std_test'] * np.sqrt(252) :.3f} \n ')
 
 
-plt.plot(daily_dates[(6289-5037):], (1 + results_CNN['CNNTransfomrer']['returns_test']).cumprod())
+plt.plot(daily_dates[(6289-5037):], (1 + results_CNN['CNNTransformer']['returns_test']).cumprod())
+

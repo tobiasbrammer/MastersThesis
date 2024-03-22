@@ -72,7 +72,7 @@ Run factor models
 
 def run_factor_models():
     # Initialize parameters for PCA
-    factor_list = [5]
+    factor_list = [1, 3, 5, 7]
     sizeCovarianceWindow = 252
     sizeWindow = 60
     intitialOOSYear = 2000
