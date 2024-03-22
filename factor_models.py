@@ -183,7 +183,6 @@ def preprocessDailyReturns(
 Run factor models
 """
 
-
 def run_factor_models(
     listFactors=[0, 1, 3, 5, 8, 10, 15],
     sizeCovarianceWindow=252,
