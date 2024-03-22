@@ -1,5 +1,108 @@
-# Get WRDS data for Instrumented PCA
-def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
+# Get data from WRDS
+def get_daily_crsp_data(
+    start_date="1969-12-31", end_date="2024-01-01", save=True, pivot=False
+):
+    from functions import get_risk_free_rate
+    from tqdm import tqdm
+    import pandas as pd
+    import numpy as np
+    from sqlalchemy import create_engine
+    import warnings
+    import os
+
+    warnings.filterwarnings("ignore", category=FutureWarning, module="yfinance")
+
+    pd.set_option("future.no_silent_downcasting", True)
+
+    connection_string = (
+        "postgresql+psycopg2://"
+        f"tobiasbrammer:naqgUf-bantas-1ruwby"
+        "@wrds-pgdata.wharton.upenn.edu:9737/wrds"
+    )
+
+    wrds = create_engine(connection_string, pool_pre_ping=True)
+
+    # Print available tables
+
+    permnos = (
+        pd.read_parquet("factor_data/TickersPermnos.parquet")["permno"]
+        .unique()
+        .tolist()
+    )
+
+    rf = pd.DataFrame(get_risk_free_rate(start_date, end_date))
+
+    # Get date from index
+    rf["date"] = rf.index
+
+    # Rename
+    rf.rename(columns={"Adj Close": "rf"}, inplace=True)
+
+    batch_size = 50
+    batches = np.ceil(len(permnos) / batch_size).astype(int)
+
+    daily_rets = pd.DataFrame()
+    print("")
+    print(f"Getting daily returns in batches of {batch_size} tickers at a time")
+    print("")
+    for j in tqdm(range(1, batches + 1), miniters=1):
+
+        permno_batch = permnos[
+            ((j - 1) * batch_size) : (min(j * batch_size, len(permnos)))
+        ]
+
+        permno_batch_formatted = ", ".join(f"'{permno}'" for permno in permno_batch)
+        permno_string = f"({permno_batch_formatted})"
+
+        crsp_daily_sub_query = f"""SELECT permno, dlycaldt AS date, dlyret AS ret, dlyvol AS vol
+            FROM crsp.dsf_v2 AS msf
+            WHERE permno IN {permno_string}
+            AND dlycaldt BETWEEN '{start_date}' AND '{end_date}'"""
+
+        crsp_daily_sub = pd.read_sql_query(
+            sql=crsp_daily_sub_query,
+            con=wrds,
+            dtype={"permno": int},
+            parse_dates={"date"},
+        ).dropna()
+
+        if not crsp_daily_sub.empty:
+
+            crsp_daily_sub = (
+                crsp_daily_sub.merge(rf[["date", "rf"]], on="date", how="left")
+                .assign(returns=lambda x: ((x["ret"] - x["rf"]).clip(lower=-1)))
+                .get(["permno", "date", "returns", "vol"])
+            )
+
+            if j == 1:
+                daily_rets = crsp_daily_sub
+            else:
+                daily_rets = pd.concat([daily_rets, crsp_daily_sub], ignore_index=True)
+
+    wrds.dispose()
+
+    daily_rets.rename(columns={"returns": "return"}, inplace=True)
+
+    if pivot:
+        daily_rets = daily_rets.pivot(columns="permno")
+
+    if save:
+        if not os.path.exists("factor_data"):
+            os.makedirs("factor_data")
+        print(f"Saving daily returns in factor_data/daily_data")
+        # Save as npz
+        np.savez_compressed(
+            "factor_data/daily_data.npz",
+            data=daily_rets.values,
+            columns=daily_rets.columns,
+            allow_pickle=True,
+        )
+        return
+    else:
+        return daily_rets
+
+
+def get_wrds(start_date="1969-12-31", end_date="2024-01-01"):
     # ToDo: Figure out why there are so many rows. Seems like some part of the code uses daily data...
     from pandas.tseries.offsets import MonthEnd
     import pandas as pd
@@ -19,65 +122,16 @@ def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
 
     wrds = create_engine(connection_string, pool_pre_ping=True)
 
-    def get_daily_crsp_data(wrds, start_date, end_date):
-        # ToDo: Not finished.
-        from functions import get_risk_free_rate
-        from tqdm import tqdm
-
-        crsp_monthly = get_monthly_crsp_data(wrds, start_date, end_date)
-        rf = get_risk_free_rate(start_date, end_date)
-        rf.rename(columns={"Adj Close": "rf"}, inplace=True)
-
-        permnos = list(crsp_monthly["permno"].unique().astype(str))
-
-        batch_size = 500
-        batches = np.ceil(len(permnos) / batch_size).astype(int)
-
-        daily_rets = pd.DataFrame()
-
-        # for j in range(1, batches + 1):
-        for j in tqdm(range(1, batches + 1), miniters=25):
-
-            permno_batch = permnos[
-                ((j - 1) * batch_size) : (min(j * batch_size, len(permnos)))
-            ]
-
-            permno_batch_formatted = ", ".join(f"'{permno}'" for permno in permno_batch)
-            permno_string = f"({permno_batch_formatted})"
-
-            crsp_daily_sub_query = (
-                "SELECT permno, dlycaldt AS date, dlyret AS ret, dlyticker AS ticker "
-                "FROM crsp.dsf_v2 "
-                f"WHERE permno IN {permno_string} "
-                f"AND dlycaldt BETWEEN '{start_date}' AND '{end_date}'"
-            )
-
-            crsp_daily_sub = pd.read_sql_query(
-                sql=crsp_daily_sub_query,
-                con=wrds,
-                dtype={"permno": int},
-                parse_dates={"date"},
-            ).dropna()
-
-            if not crsp_daily_sub.empty:
-
-                crsp_daily_sub = (
-                    crsp_daily_sub.assign(
-                        month=lambda x: x["date"].dt.to_period("M").dt.to_timestamp()
-                    )
-                    .merge(rf[["date", "rf"]], on="date", how="left")
-                    .assign(ret_excess=lambda x: ((x["ret"] - x["rf"]).clip(lower=-1)))
-                    .get(["permno", "date", "month", "ret_excess"])
-                )
-
-                if j == 1:
-                    daily_rets = crsp_daily_sub
-                else:
-                    daily_rets = daily_rets.append(crsp_daily_sub)
-
     def get_monthly_crsp_data(wrds, start_date, end_date):
         import yfinance as yf
         from statsmodels.formula.api import ols
+
+        # Read tickers from file
+        tickers = (
+            pd.read_parquet("factor_data/TickersPermnos.parquet")["ticker"]
+            .unique()
+            .tolist()
+        )
 
         crsp_monthly_query = f"""
         SELECT msf.ticker, msf.permno, msf.mthcaldt AS date, 
@@ -90,6 +144,7 @@ def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
             ssih.secinfostartdt <= msf.mthcaldt AND 
             msf.mthcaldt <= ssih.secinfoenddt 
             WHERE msf.mthcaldt BETWEEN '{start_date}' AND '{end_date}' 
+            AND msf.ticker IN {tuple(tickers)}
             AND ssih.sharetype = 'NS' 
             AND ssih.securitytype = 'EQTY' 
             AND ssih.securitysubtype = 'COM' 
@@ -134,7 +189,7 @@ def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
         print(f"Fetching risk free rate and calculating excess returns")
         rf = yf.download("^IRX", start=start_date, end=end_date)["Adj Close"]
         rf = pd.DataFrame(
-            rf.apply(lambda x: (1 + x) ** (1 / 12) - 1)
+            rf.apply(lambda x: (1 + x) ** (1 / 12) - 1) / 100
         )  # Monthly risk free rate.
         # Set Date as datetime
         rf.index = pd.to_datetime(rf.index)
@@ -158,8 +213,12 @@ def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
         mkt["jdate"] = mkt.index + MonthEnd(0)
         mkt.rename(columns={"Adj Close": "mkt"}, inplace=True)
         mkt = mkt.groupby("jdate").last()
-        mkt["mkt_ret"] = mkt["mkt"] - mkt["mkt"].shift(1)
+        mkt["mkt_ret"] = mkt["mkt"] - mkt["mkt"].shift(1)  # ToDo: This is not correct.
+        # Calculate market return
+        mkt["mkt_ret"] = mkt["mkt_ret"].fillna(0)
 
+        # Sort by date
+        mkt = mkt.sort_values("jdate")
         crsp_monthly = crsp_monthly.merge(mkt, how="left", on="jdate")
 
         print(f"Fetching market returns and calculating betas")
@@ -415,22 +474,21 @@ def get_wrds(start_date="1999-12-31", end_date="2024-01-01"):
     sizemom["group"] = sizemom.apply(size_group, axis=1)
     sizemom["year"] = sizemom["date"].dt.year - 1
     sizemom = sizemom[["permno", "year", "mom", "group", "ret"]]
-    comp = pd.merge(comp, sizemom, how="inner", on=["permno", "year"])
+    comp = pd.merge(comp, sizemom, how="left", on=["permno", "year"])
 
     del sizemom
 
     # Close connection to wrds odbc database
     wrds.dispose()
 
-    # Save in ipca_test_data/comp.parquet
-    # comp.to_parquet('ipca_test_data/comp.parquet')
-
     return comp
 
 
 def process_compustat(save=False):
+
     import pandas as pd
     import numpy as np
+    import os
 
     # Set .streamlit/config.toml to [global]
     # dataFrameSerialization = "legacy"
@@ -441,10 +499,19 @@ def process_compustat(save=False):
 
     df = df.fillna(0)
 
+    dimTicker = pd.DataFrame()
+    dimTicker["permno"] = df["permno"]
+    dimTicker["ticker"] = df["ticker"].astype("str")
+
+    if not os.path.exists("factor_data"):
+        os.makedirs("factor_data")
+    dimTicker.to_parquet("factor_data/TickersPermnos.parquet")
+
     fundamentals = pd.DataFrame()
+    fundamentals["permno"] = df["permno"]
     fundamentals["ticker"] = df["ticker"].astype("str")
-    fundamentals["date"] = df["jdate"]
-    fundamentals["year"] = df["jdate"].dt.year
+    fundamentals["date"] = df["date"]
+    fundamentals["year"] = df["date"].dt.year
     fundamentals["noa"] = (df["at"] - df["che"] - df["ivao"]) - (
         df["at"] - df["dlc"] - df["dltt"] - df["mib"] - df["pstk"] - df["ceq"]
     )
@@ -494,25 +561,30 @@ def process_compustat(save=False):
     fundamentals["csho"] = df["csho"]
     fundamentals["ajex"] = df["ajex"]
     fundamentals_lags = (
-        fundamentals[["ticker", "year", "at", "cap", "csho", "ajex"]]
-        .assign(year=lambda x: x["year"] + 1)
-        .rename(
-            columns={
-                "at": "at_lag",
-                "cap": "lme",
-                "csho": "csho_lag",
-                "ajex": "ajex_lag",
-            }
+        (
+            fundamentals[["ticker", "year", "at", "cap", "csho", "ajex"]]
+            .assign(year=lambda x: x["year"] + 1)
+            .rename(
+                columns={
+                    "at": "at_lag",
+                    "cap": "lme",
+                    "csho": "csho_lag",
+                    "ajex": "ajex_lag",
+                }
+            )
         )
+        .groupby(["ticker", "year"])
+        .last()
     )
     fundamentals = fundamentals.merge(
         fundamentals_lags, how="left", on=["ticker", "year"]
-    ).assign(
-        ni=lambda x: np.log(1 + x["csho"] * x["ajex"])
-        - np.log(1 + x["csho_lag"] * x["ajex_lag"])
     )
     fundamentals = fundamentals.replace([np.inf, -np.inf], np.nan)
     fundamentals.fillna(0, inplace=True)
+    fundamentals["ni"] = (
+        np.log(1 + fundamentals["csho"] * fundamentals["ajex"])
+        - np.log(1 + fundamentals["csho_lag"] * fundamentals["ajex_lag"])
+    ).fillna(0)
     fundamentals["investment"] = (df["at_lag"] - df["at"]) / df["at_lag"]
     fundamentals["beta"] = df["beta"]
     fundamentals["oa"] = (
@@ -526,13 +598,17 @@ def process_compustat(save=False):
 
     fundamentals.fillna(0, inplace=True)
 
-    if save:
-        print(f"Saving characteristics")
-        import os
+    # Drop ticker column
+    fundamentals = fundamentals.drop(columns=["ticker"])
 
-        if not os.path.exists("factor_data"):
-            os.makedirs("factor_data")
-        fundamentals.to_parquet("factor_data/MonthlyData.parquet")
+    if save:
+        print(f"Saving characteristics as factor_data/monthly_data.npz")
+        np.savez_compressed(
+            "factor_data/monthly_data.npz",
+            data=fundamentals,
+            columns=fundamentals.columns,
+            allow_pickle=True,
+        )
         return
 
     return fundamentals
