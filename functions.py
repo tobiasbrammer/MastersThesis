@@ -213,8 +213,8 @@ def train(
     if device is None:
         device = model.device
 
-    if residual_weights_train is not None:
-        residual_weights_train = residual_weights_train[:, assets_to_trade]
+    # if residual_weights_train is not None:
+    # residual_weights_train = residual_weights_train[:, assets_to_trade]
 
     T, N = df_train.shape
     windows, idxs_selected = preprocess(df_train, lookback)
@@ -944,7 +944,9 @@ Run the model
 """
 
 
-def run_model(factors: list, model_name, preprocess, config, cwd, daily_dates):
+def run_model(
+    factors: list, model_name, preprocess, config, cwd, daily_dates, weights, iFactors
+):
     """
     Runs the model for all factors in the list
     Args:
@@ -964,11 +966,11 @@ def run_model(factors: list, model_name, preprocess, config, cwd, daily_dates):
         print(f"Testing factor model: {factors[i]}")
         start_time = time.time()
 
-        residuals = np.load(factors[i])
+        residuals = np.load(factors[i], allow_pickle=True)["arr_0"]
 
         if config["use_residual_weights"]:
             # ToDo: Skal laves noget så den kan hente dem ordenligt
-            residual_weights = np.load(config["residual_weights"])
+            residual_weights = np.load(weights, allow_pickle=True)["arr_0"]
         else:
             residual_weights = None
 
@@ -1067,7 +1069,7 @@ def run_model(factors: list, model_name, preprocess, config, cwd, daily_dates):
         }
 
         # Save results
-        with open(f"{cwd}/results/{model_tag}_results.pkl", "wb") as f:
+        with open(f"{cwd}/results/{model_tag}_{iFactors}_results.pkl", "wb") as f:
             pickle.dump(results_dict, f)
 
         print(
