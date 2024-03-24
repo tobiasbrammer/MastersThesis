@@ -185,6 +185,10 @@ iFactors = [0]
 # iFactors = [0, 1, 3, 5, 8, 10, 15]
 
 for model in lFactorModels:
+
+    if model == "ff":
+        iFactors = range(len(iFactors))
+
     print(f"Running models for {model}")
     for i in iFactors:
         print(f"Running models for {model} with {i} factors")
