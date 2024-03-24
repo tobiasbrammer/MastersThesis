@@ -2,6 +2,7 @@
 from functions import *
 import yaml
 from pre_process import *
+import os
 
 
 def PlotSeries(dict, dictTitle, sFactorModel: str, iFactors: int):
@@ -149,6 +150,15 @@ def PlotSeries(dict, dictTitle, sFactorModel: str, iFactors: int):
 # Initialize parameters
 ########################################################################################################################
 # Load data
+if os.path.exists("factor_data/daily_data_processed.npz"):
+    print("Daily returns already processed; skipping")
+else:
+    import factor_models as fm
+
+    print("Preprocessing daily returns")
+    fm.preprocessDailyReturns()
+
+
 pathDailyData = "factor_data/daily_data_processed.npz"
 dailyData = np.load(pathDailyData, allow_pickle=True)
 daily_dates = pd.to_datetime(dailyData["date"], format="%Y%m%d")
@@ -174,95 +184,102 @@ torch.backends.cudnn.deterministic = False
 # model_name = OU_FFN
 # preprocess = preprocess_ou
 
+lFactorModels = ["ff", "pca", "ipca"]
 
-iFactors = [5]
+iFactors = [0]
 # iFactors = [0, 1, 3, 5, 8, 10, 15]
 
-for i in iFactors:
-    """
-    OU
-    """
+for model in lFactorModels:
+    print(f"Running models for {model}")
+    for i in iFactors:
+        print(f"Running models for {model} with {i} factors")
+        """
+        OU
+        """
 
-    with open("configs/OU.yaml", "r") as file:
-        ou_config = yaml.safe_load(file)
-    ou_model_name = OU_FFN
-    ou_model_name = preprocess_ou
+        with open("configs/OU.yaml", "r") as file:
+            ou_config = yaml.safe_load(file)
+        ou_model_name = OU_FFN
+        ou_preprocess = preprocess_ou
 
-    ou_factors = [ou_config[f"pca_{i}_res_path"]]  # ['PCA', 'IPCA', 'FamaFrench']
-    ou_weights = ou_config[f"pca_{i}_residual_weights"]
+        ou_factors = [ou_config[f"{model}_{i}_res_path"]]
+        ou_weights = ou_config[f"{model}_{i}_residual_weights"]
 
-    run_model(
-        ou_factors,
-        ou_model_name,
-        ou_model_name,
-        ou_config,
-        cwd,
-        daily_dates,
-        ou_weights,
-        i,
-    )
+        run_model(
+            ou_factors,
+            ou_model_name,
+            ou_preprocess,
+            ou_config,
+            cwd,
+            daily_dates,
+            ou_weights,
+            i,
+            model,
+        )
 
-    with open(f"results/OU_{i}_results.pkl", "rb") as f:
-        ou_results = pickle.load(f)
+        with open(f"results/OU_{model}_{i}_results.pkl", "rb") as f:
+            ou_results = pickle.load(f)
 
-    PlotSeries(ou_results, "OU", "PCA", i)
+        PlotSeries(ou_results, "OU", model.upper(), i)
 
-    """
-    FFT
-    """
+        """
+        FFT
+        """
 
-    with open("configs/FFT.yaml", "r") as file:
-        fft_config = yaml.safe_load(file)
-    fft_model_name = FFT_FFN
-    fft_model_name = preprocess_fourier
+        with open("configs/FFT.yaml", "r") as file:
+            fft_config = yaml.safe_load(file)
+        fft_model_name = FFT_FFN
+        fft_preprocess = preprocess_fourier
 
-    fft_factors = [fft_config[f"pca_{i}_res_path"]]  # ['PCA', 'IPCA', 'FamaFrench']
-    fft_weights = fft_config[f"pca_{i}_residual_weights"]
+        fft_factors = [fft_config[f"{model}_{i}_res_path"]]
+        fft_weights = fft_config[f"{model}_{i}_residual_weights"]
 
-    run_model(
-        fft_factors,
-        fft_model_name,
-        fft_model_name,
-        fft_config,
-        cwd,
-        daily_dates,
-        fft_weights,
-        i,
-    )
+        run_model(
+            fft_factors,
+            fft_model_name,
+            fft_preprocess,
+            fft_config,
+            cwd,
+            daily_dates,
+            fft_weights,
+            i,
+            model,
+        )
 
-    with open(f"results/FFT_{i}_results.pkl", "rb") as f:
-        fft_results = pickle.load(f)
+        with open(f"results/FFT_{model}_{i}_results.pkl", "rb") as f:
+            fft_results = pickle.load(f)
 
-    PlotSeries(fft_results, "FFT", "PCA", i)
+        PlotSeries(fft_results, "FFT", model.upper(), i)
 
-    """
-    CNNTransformer
-    """
-    with open("configs/CNNTransformer.yaml", "r") as file:
-        cnn_config = yaml.safe_load(file)
-    cnn_model_name = CNNTransformer_FFN
-    cnn_model_name = preprocess_cnn
+        """
+        CNNTransformer
+        """
+        with open("configs/CNNTransformer.yaml", "r") as file:
+            cnn_config = yaml.safe_load(file)
+        cnn_model_name = CNNTransformer_FFN
+        cnn_preprocess = preprocess_cnn
 
-    # Load factors - ToDo: Files for our residual data should be in the list:
-    cnn_factors = [cnn_config[f"pca_{i}_res_path"]]  # ['PCA', 'IPCA', 'FamaFrench']
-    cnn_weights = cnn_config[f"pca_{i}_residual_weights"]
+        # Load factors - ToDo: Files for our residual data should be in the list:
+        cnn_factors = [cnn_config[f"{model}_{i}_res_path"]]
+        cnn_weights = cnn_config[f"{model}_{i}_residual_weights"]
 
-    # model_name, preprocess, config, cwd, daily_dates, weights, iFactors
-    run_model(
-        cnn_factors,
-        cnn_model_name,
-        cnn_model_name,
-        cnn_config,
-        cwd,
-        daily_dates,
-        cnn_weights,
-        i,
-    )
+        # model_name, preprocess, config, cwd, daily_dates, weights, iFactors
+        run_model(
+            cnn_factors,
+            cnn_model_name,
+            cnn_preprocess,
+            cnn_config,
+            cwd,
+            daily_dates,
+            cnn_weights,
+            i,
+            model,
+        )
 
-    with open(f"results/CNNTransformer_{i}_results.pkl", "rb") as f:
-        cnn_results = pickle.load(f)
+        with open(f"results/CNNTransformer_{model}_{i}_results.pkl", "rb") as f:
+            cnn_results = pickle.load(f)
 
-    PlotSeries(cnn_results, "CNNTransformer", "PCA", i)
+        PlotSeries(cnn_results, "CNNTransformer", model.upper(), i)
 
 
 # print(f'CNNTransformer: \n Sharpe: {results_CNN['CNNTransformer']['sharpe_test'] * np.sqrt(252) :.3f} \n '
