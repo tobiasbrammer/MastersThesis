@@ -163,7 +163,6 @@ pathDailyData = "factor_data/daily_data_processed.npz"
 dailyData = np.load(pathDailyData, allow_pickle=True)
 daily_dates = pd.to_datetime(dailyData["date"], format="%Y%m%d")
 
-
 # Set output path and cwd
 outdir = os.path.join(os.getcwd(), "Outputs")
 cwd = os.getcwd()
@@ -173,16 +172,12 @@ torch.set_default_dtype(torch.float)
 torch.autograd.set_detect_anomaly(True)
 torch.backends.cudnn.deterministic = False
 
-# Choose model
-# with open('configs/FFT.yaml', 'r') as file:
-#     config = yaml.safe_load(file)
-# model_name = FFT_FFN
-# preprocess = preprocess_fourier
+# Check if cuda is available
+device = "cuda" if torch.cuda.is_available() else "cpu"
 
-# with open('configs/OU.yaml', 'r') as file:
-#     config = yaml.safe_load(file)
-# model_name = OU_FFN
-# preprocess = preprocess_ou
+ou = True
+fft = True
+cnn = True
 
 lFactorModels = ["ff", "pca", "ipca"]
 
@@ -196,90 +191,101 @@ for model in lFactorModels:
         """
         OU
         """
+        if ou:
 
-        with open("configs/OU.yaml", "r") as file:
-            ou_config = yaml.safe_load(file)
-        ou_model_name = OU_FFN
-        ou_preprocess = preprocess_ou
+            with open("configs/OU.yaml", "r") as file:
+                ou_config = yaml.safe_load(file)
 
-        ou_factors = [ou_config[f"{model}_{i}_res_path"]]
-        ou_weights = ou_config[f"{model}_{i}_residual_weights"]
+            ou_config["device"] = device
 
-        run_model(
-            ou_factors,
-            ou_model_name,
-            ou_preprocess,
-            ou_config,
-            cwd,
-            daily_dates,
-            ou_weights,
-            i,
-            model,
-        )
+            ou_model_name = OU_FFN
+            ou_preprocess = preprocess_ou
 
-        with open(f"results/OU_{model}_{i}_results.pkl", "rb") as f:
-            ou_results = pickle.load(f)
+            ou_factors = [ou_config[f"{model}_{i}_res_path"]]
+            ou_weights = ou_config[f"{model}_{i}_residual_weights"]
 
-        PlotSeries(ou_results, "OU", model.upper(), i)
+            run_model(
+                ou_factors,
+                ou_model_name,
+                ou_preprocess,
+                ou_config,
+                cwd,
+                daily_dates,
+                ou_weights,
+                i,
+                model,
+            )
+
+            with open(f"results/OU_{model}_{i}_results.pkl", "rb") as f:
+                ou_results = pickle.load(f)
+
+            PlotSeries(ou_results, "OU", model.upper(), i)
 
         """
         FFT
         """
 
-        with open("configs/FFT.yaml", "r") as file:
-            fft_config = yaml.safe_load(file)
-        fft_model_name = FFT_FFN
-        fft_preprocess = preprocess_fourier
+        if fft:
+            with open("configs/FFT.yaml", "r") as file:
+                fft_config = yaml.safe_load(file)
 
-        fft_factors = [fft_config[f"{model}_{i}_res_path"]]
-        fft_weights = fft_config[f"{model}_{i}_residual_weights"]
+            fft_config["device"] = device
 
-        run_model(
-            fft_factors,
-            fft_model_name,
-            fft_preprocess,
-            fft_config,
-            cwd,
-            daily_dates,
-            fft_weights,
-            i,
-            model,
-        )
+            fft_model_name = FFT_FFN
+            fft_preprocess = preprocess_fourier
 
-        with open(f"results/FFT_{model}_{i}_results.pkl", "rb") as f:
-            fft_results = pickle.load(f)
+            fft_factors = [fft_config[f"{model}_{i}_res_path"]]
+            fft_weights = fft_config[f"{model}_{i}_residual_weights"]
 
-        PlotSeries(fft_results, "FFT", model.upper(), i)
+            run_model(
+                fft_factors,
+                fft_model_name,
+                fft_preprocess,
+                fft_config,
+                cwd,
+                daily_dates,
+                fft_weights,
+                i,
+                model,
+            )
+
+            with open(f"results/FFT_{model}_{i}_results.pkl", "rb") as f:
+                fft_results = pickle.load(f)
+
+            PlotSeries(fft_results, "FFT", model.upper(), i)
 
         """
         CNNTransformer
         """
-        with open("configs/CNNTransformer.yaml", "r") as file:
-            cnn_config = yaml.safe_load(file)
-        cnn_model_name = CNNTransformer_FFN
-        cnn_preprocess = preprocess_cnn
+        if cnn:
+            with open("configs/CNNTransformer.yaml", "r") as file:
+                cnn_config = yaml.safe_load(file)
+            cnn_model_name = CNNTransformer_FFN
+            cnn_preprocess = preprocess_cnn
 
-        # Load factors - ToDo: Files for our residual data should be in the list:
-        cnn_factors = [cnn_config[f"{model}_{i}_res_path"]]
-        cnn_weights = cnn_config[f"{model}_{i}_residual_weights"]
+            cnn_config["device"] = device
 
-        # model_name, preprocess, config, cwd, daily_dates, weights, iFactors
-        run_model(
-            cnn_factors,
-            cnn_model_name,
-            cnn_preprocess,
-            cnn_config,
-            cwd,
-            daily_dates,
-            cnn_weights,
-            i,
-            model,
-        )
+            # Load factors - ToDo: Files for our residual data should be in the list:
+            cnn_factors = [cnn_config[f"{model}_{i}_res_path"]]
+            cnn_weights = cnn_config[f"{model}_{i}_residual_weights"]
 
-        with open(f"results/CNNTransformer_{model}_{i}_results.pkl", "rb") as f:
-            cnn_results = pickle.load(f)
+            # model_name, preprocess, config, cwd, daily_dates, weights, iFactors
+            run_model(
+                cnn_factors,
+                cnn_model_name,
+                cnn_preprocess,
+                cnn_config,
+                cwd,
+                daily_dates,
+                cnn_weights,
+                i,
+                model,
+            )
 
-        PlotSeries(cnn_results, "CNNTransformer", model.upper(), i)
+            with open(f"results/CNNTransformer_{model}_{i}_results.pkl", "rb") as f:
+                cnn_results = pickle.load(f)
+
+            PlotSeries(cnn_results, "CNNTransformer", model.upper(), i)
 
 
 # print(f'CNNTransformer: \n Sharpe: {results_CNN['CNNTransformer']['sharpe_test'] * np.sqrt(252) :.3f} \n '
