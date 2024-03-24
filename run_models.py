@@ -28,10 +28,13 @@ def PlotSeries(dict, dictTitle, sFactorModel: str, iFactors: int):
     # Format dictTitle
     if dictTitle == "CNNTransformer":
         formattedTitle = "CNN + Transformer"
+        signal = "CNN"
     elif dictTitle == "FFT":
         formattedTitle = "FFT + FFN"
+        signal = "FFT"
     elif dictTitle == "OU":
         formattedTitle = "Ornstein-Uhlenbeck + FFN"
+        signal = "OU"
 
     rets = dict[dictTitle]["returns_test"]
     turnover = dict[dictTitle]["turnover_test"]
@@ -63,7 +66,7 @@ def PlotSeries(dict, dictTitle, sFactorModel: str, iFactors: int):
     upload(
         plt,
         "Master's Thesis",
-        f"figures/{dictTitle}_{sFactorModel}_{iFactors}_returns.png",
+        f"figures/{signal}/{sFactorModel.upper()}/{dictTitle}_{sFactorModel}_{iFactors}_returns.png",
     )
 
     """
@@ -91,7 +94,7 @@ def PlotSeries(dict, dictTitle, sFactorModel: str, iFactors: int):
     upload(
         plt,
         "Master's Thesis",
-        f"figures/{dictTitle}_{sFactorModel}_{iFactors}_turnover.png",
+        f"figures/{signal}/{sFactorModel.upper()}/{dictTitle}_{sFactorModel}_{iFactors}_turnover.png",
     )
 
     """
@@ -120,7 +123,7 @@ def PlotSeries(dict, dictTitle, sFactorModel: str, iFactors: int):
     upload(
         plt,
         "Master's Thesis",
-        f"figures/{dictTitle}_{sFactorModel}_{iFactors}_short.png",
+        f"figures/{signal}/{sFactorModel.upper()}/{dictTitle}_{sFactorModel}_{iFactors}_short.png",
     )
 
     return
@@ -177,7 +180,7 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 
 ou = True
 fft = True
-cnn = True
+cnn = False
 
 lFactorModels = ["ff", "pca", "ipca"]
 
