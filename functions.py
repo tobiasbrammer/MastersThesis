@@ -529,7 +529,7 @@ def train(
         torch.save(checkpoint, os.path.join(output_path, checkpoint_fname))
 
     print(
-        f"Training time: {(time.time() - start_time) / 60} minutes, model: {model_tag}, "
+        f"Training time: {(time.time() - start_time) / 60:.2f} minutes, model: {model_tag}, "
         f"seed: {model.module.random_seed if parallelize else model.random_seed}"
     )
 
@@ -815,17 +815,9 @@ def test(
         else:
             w = weights_t
 
-        # "Logging"
-        print(
-            f"Weights selected shape "
-            f"{all_weights[(t * retrain_freq):min((t + 1) * retrain_freq, T - length_training), assets_to_trade].shape}"
-        )
-        print(f"sum(assets_to_trade) {np.sum(assets_to_trade)}")
-
-        all_weights[
-            (t * retrain_freq) : min((t + 1) * retrain_freq, T - length_training),
-            assets_to_trade,
-        ] = w
+        # all_weights[
+        #     (t * retrain_freq) : min((t + 1) * retrain_freq, T - length_training), :
+        # ] = w
 
         if device is None:
             device = model.device.type
@@ -857,9 +849,11 @@ def test(
     # plt.savefig(os.path.join(output_path, model_tag + "_short-proportions.png"))
     # upload(plt, "Master's Thesis", f"figures/{model_tag}_short-proportions.png")
 
-    np.save(
-        os.path.join(output_path, "WeightsComplete_" + model_tag + ".npy"), all_weights
-    )
+
+    # np.save(
+    #     os.path.join(output_path, "WeightsComplete_" + model_tag + ".npy"), all_weights
+    # )
+
 
     full_ret = np.mean(returns)
     full_std = np.std(returns)
@@ -1083,5 +1077,5 @@ def run_model(
             pickle.dump(results_dict, f)
 
         print(
-            f"Time for {str(model_name)} factor model {factors[i]}_{iFactors}: {(time.time() - start_time) / 60} minutes"
+            f"Time for {str(model_name)} factor model {factors[i]}_{iFactors}: {(time.time() - start_time) / 60:0.2f} minutes"
         )
