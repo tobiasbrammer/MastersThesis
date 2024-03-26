@@ -136,7 +136,9 @@ def preprocessMonthlyData(
     permno = df.index.levels[1].to_numpy()
     variable = df.columns.to_numpy()
 
-    np.savez(savepath, data=data, date=date, permno=permno, variable=variable)
+    np.savez(
+        savepath, data=np.float32(data), date=date, permno=permno, variable=variable
+    )
     return
 
 
@@ -476,14 +478,14 @@ class PCA:
                     pca_dir,
                     f"OOSResidualsmatrix_PCA_factor{factor}_rollingwindow_{sizeWindow}.npz",
                 ),
-                residualsMatricesOOS,
+                np.float32(residualsMatricesOOS),
             )
             np.savez_compressed(
                 os.path.join(
                     pca_dir,
                     f"OOSResiduals_PCA_factor{factor}_rollingwindow_{sizeWindow}.npz",
                 ),
-                residualsOOS,
+                np.float32(residualsOOS),
             )
 
         return
@@ -1392,10 +1394,10 @@ class IPCA:
                 print(f"Saving {rsavepath}")
                 # Ensure folders exist
                 os.makedirs(os.path.dirname(rsavepath), exist_ok=True)
-                np.savez_compressed(rsavepath, residualsOOS)
+                np.savez_compressed(rsavepath, np.float32(residualsOOS))
                 print(f"Saving {msavepath}")
                 os.makedirs(os.path.dirname(msavepath), exist_ok=True)
-                np.savez_compressed(msavepath, residualsMatricesOOS)
+                np.savez_compressed(msavepath, np.float32(residualsMatricesOOS))
         if not skip_oos:
             pass
 
@@ -1634,14 +1636,15 @@ class FamaFrench:
                 os.makedirs(os.path.dirname(self._logdir), exist_ok=True)
                 np.savez_compressed(
                     os.path.join(self._logdir, residuals_mtx_filename),
-                    residualsMatricesOOS,
+                    np.float32(residualsMatricesOOS),
                 )
                 residuals_filename = (
                     f"DailyFamaFrench_OOSresiduals"
                     + f"_{factor}_factors_{sizeWindow}_rollingWindow.npz"
                 )
                 np.savez_compressed(
-                    os.path.join(self._logdir, residuals_filename), residualsOOS
+                    os.path.join(self._logdir, residuals_filename),
+                    np.float32(residualsOOS),
                 )
                 print(f"Finished! Cap: {cap}, factor: {factor}")
 
