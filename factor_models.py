@@ -1028,15 +1028,6 @@ class IPCA:
 
         np.save("factor_data/residuals/super_mask.npy", superMask)
 
-        # if not os.path.isdir(
-        #     self._logdir + "_stuff"
-        # ):  # ToDo: No idea why this is necessary.
-        #     try:
-        #         os.mkdir(self._logdir + "_stuff")
-        #     except Exception as e:
-        #         print(f"Could not create folder '{self._logdir + '_stuff'}'!")
-        #         raise e
-
         if printOnConsole:
             print("Beginning daily residual computations")
         for nFactors in listFactors:
@@ -1080,7 +1071,7 @@ class IPCA:
                     # print("Estimating gamma")
                     if nWindow == 0:
                         gamma_path = os.path.join(
-                            self._logdir + "_stuff",
+                            self._logdir,
                             f"gamma_{nFactors}_factors_{initialMonths}_initialMonths_{sizeWindow}_window_{reestimationFreq}_reestimationFreq_{CapProportion}_cap_{nWindow}.npy",
                         )
                         if os.path.isfile(gamma_path) and not save_gamma:
@@ -1172,7 +1163,7 @@ class IPCA:
                                 np.save(gamma_path, Gamma)
                     else:
                         gamma_path = os.path.join(
-                            self._logdir + "_stuff",
+                            self._logdir,
                             f"gamma_{nFactors}_factors_{initialMonths}_initialMonths_{sizeWindow}_window_{reestimationFreq}_reestimationFreq_{CapProportion}_cap_{nWindow}.npy",
                         )
                         if os.path.isfile(gamma_path) and not save_gamma:
@@ -1263,7 +1254,7 @@ class IPCA:
                             ]  # TxN
                             if save_rmonth:
                                 r_path = os.path.join(
-                                    self._logdir + "_stuff",
+                                    self._logdir,
                                     f"rmonth_{month}_month_{nFactors}_factors_{initialMonths}_initialMonths_{sizeWindow}_window_{reestimationFreq}_reestimationFreq_{CapProportion}_cap.npy",
                                 )
                                 np.save(r_path, R_month)
@@ -1318,13 +1309,13 @@ class IPCA:
                             )
                             if save_sparse_weights_month:
                                 sw_path = os.path.join(
-                                    self._logdir + "_stuff",
+                                    self._logdir,
                                     f"sparseweights_{month}_month_{nFactors}_factors_{initialMonths}_initialMonths_{sizeWindow}_window_{reestimationFreq}_reestimationFreq_{CapProportion}_cap.npy",
                                 )
                                 np.save(sw_path, sparse_weights_month)
                             if save_beta:
                                 beta_path = os.path.join(
-                                    self._logdir + "_stuff",
+                                    self._logdir,
                                     f"beta_{month}_month_{nFactors}_factors_{initialMonths}_initialMonths_{sizeWindow}_window_{reestimationFreq}_reestimationFreq_{CapProportion}_cap.npy",
                                 )
                                 np.save(beta_path, beta_month)
