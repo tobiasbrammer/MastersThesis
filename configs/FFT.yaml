@@ -30,6 +30,7 @@ device: "cuda"
 
 
 # Residual paths
+
 pca_0_res_path: "factor_data/residuals/pca/OOSResiduals_PCA_factor0_rollingwindow_180.npz"
 pca_1_res_path: "factor_data/residuals/pca/OOSResiduals_PCA_factor1_rollingwindow_180.npz"
 pca_3_res_path: "factor_data/residuals/pca/OOSResiduals_PCA_factor3_rollingwindow_180.npz"

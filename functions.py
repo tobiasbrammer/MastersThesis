@@ -849,9 +849,11 @@ def test(
     # plt.savefig(os.path.join(output_path, model_tag + "_short-proportions.png"))
     # upload(plt, "Master's Thesis", f"figures/{model_tag}_short-proportions.png")
 
+
     # np.save(
     #     os.path.join(output_path, "WeightsComplete_" + model_tag + ".npy"), all_weights
     # )
+
 
     full_ret = np.mean(returns)
     full_std = np.std(returns)
@@ -1075,5 +1077,5 @@ def run_model(
             pickle.dump(results_dict, f)
 
         print(
-            f"Time for {str(model_name)} factor model: {(time.time() - start_time) / 60:0.2f} minutes"
+            f"Time for {str(model_name)} factor model {factors[i]}_{iFactors}: {(time.time() - start_time) / 60:0.2f} minutes"
         )

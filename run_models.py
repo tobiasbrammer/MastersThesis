@@ -3,7 +3,9 @@ from functions import *
 import yaml
 from pre_process import *
 import os
+
 from tqdm import tqdm
+
 
 
 def PlotSeries(dict, dictTitle, sFactorModel: str, iFactors: int):
@@ -29,6 +31,7 @@ def PlotSeries(dict, dictTitle, sFactorModel: str, iFactors: int):
     # Format dictTitle
     if dictTitle == "CNNTransformer":
         formattedTitle = "CNN + Transformer"
+
         signal = "CNN"
     elif dictTitle == "FFT":
         formattedTitle = "FFT + FFN"
@@ -36,6 +39,7 @@ def PlotSeries(dict, dictTitle, sFactorModel: str, iFactors: int):
     elif dictTitle == "OU":
         formattedTitle = "Ornstein-Uhlenbeck + FFN"
         signal = "OU"
+
 
     rets = dict[dictTitle]["returns_test"]
     turnover = dict[dictTitle]["turnover_test"]
@@ -68,6 +72,7 @@ def PlotSeries(dict, dictTitle, sFactorModel: str, iFactors: int):
         plt,
         "Master's Thesis",
         f"figures/{signal}/{sFactorModel.upper()}/{dictTitle}_{sFactorModel}_{iFactors}_returns.png",
+
     )
 
     """
@@ -205,6 +210,7 @@ for model in pbar1:
         print("\n")
         print(f"Running models for {model} with {i} factors")
         pbar2.set_description_str(f"Factor: {model} {i}")
+
         """
         OU
         """

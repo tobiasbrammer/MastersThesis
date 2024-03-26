@@ -30,6 +30,7 @@ model_name_: "OU_FFN"  # For saving in correct directory
 
 
 # Residual paths
+
 pca_0_res_path: "factor_data/residuals/pca/OOSResiduals_PCA_factor0_rollingwindow_180.npz"
 pca_1_res_path: "factor_data/residuals/pca/OOSResiduals_PCA_factor1_rollingwindow_180.npz"
 pca_3_res_path: "factor_data/residuals/pca/OOSResiduals_PCA_factor3_rollingwindow_180.npz"
@@ -79,3 +80,4 @@ ff_4_residual_weights: "factor_data/residuals/fama_french/DailyFamaFrench_OOSres
 ff_5_residual_weights: "factor_data/residuals/fama_french/DailyFamaFrench_OOSresiduals_5_factors_180_rollingWindow_0.001_Cap.npz"
 ff_6_residual_weights: "factor_data/residuals/fama_french/DailyFamaFrench_OOSresiduals_6_factors_180_rollingWindow_0.001_Cap.npz"
 ff_7_residual_weights: "factor_data/residuals/fama_french/DailyFamaFrench_OOSresiduals_7_factors_180_rollingWindow_0.001_Cap.npz"
+

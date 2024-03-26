@@ -269,7 +269,9 @@ def run_factor_models(
                     reestimationFreq=12,
                 )
         print("")
+
         print(f"Took {(time.time() - start_time_ipca) / 60:.2f} minutes to run IPCA")
+
 
     print("")
     if ff:
@@ -292,9 +294,11 @@ def run_factor_models(
                     save=True,
                 )
         print("")
+
         print(
             f"Took {(time.time() - start_time_ff) / 60:.2f} minutes to run Fama French"
         )
+
 
     print("")
     print(f"Took {(time.time() - start_time) / 60:.2f} minutes to run factor models")
