@@ -187,14 +187,15 @@ Run factor models
 def run_factor_models(
     listFactors=[0, 1, 3, 5, 8, 10, 15],
     sizeCovarianceWindow=252,
-    sizeWindow=[60],
-    initialOOSYear=2000,
-    capProportion=[0.01],
-    pca=True,
-    ipca=True,
+    sizeWindow=[15 * 12],
+    initialOOSYear=2005,
+    capProportion=[0.001],
+    pca=False,
+    ipca=False,
     ff=True,
 ):
 
+    # [0, 1, 3, 5, 8, 10, 15]
     import time
     import wrds_function
 
@@ -232,14 +233,14 @@ def run_factor_models(
         pca = PCA(logdir=os.path.join("factor_data/residuals", "pca"))
         for prop in capProportion:  # , 0.001]:
             for size in sizeWindow:  # 15*12]:
-                print(f"Running IPCA for window size {size}, cap proportion {prop}")
+                print(f"Running PCA for window size {size}, cap proportion {prop}")
                 pca.OOSRollingWindowPermnos(
                     listFactors=listFactors,  # [0, 1, 3, 5, 8, 10, 15]
                     sizeWindow=size,
                     CapProportion=prop,
                 )
         print("")
-        print(f"Took {(time.time() - start_time_pca) / 60} minutes to run PCA")
+        print(f"Took {(time.time() - start_time_pca) / 60:.2f} minutes to run PCA")
 
     print("")
     if ipca:
@@ -268,7 +269,9 @@ def run_factor_models(
                     reestimationFreq=12,
                 )
         print("")
-        print(f"Took {(time.time() - start_time_ipca) / 60} minutes to run IPCA")
+
+        print(f"Took {(time.time() - start_time_ipca) / 60:.2f} minutes to run IPCA")
+
 
     print("")
     if ff:
@@ -291,10 +294,14 @@ def run_factor_models(
                     save=True,
                 )
         print("")
-        print(f"Took {(time.time() - start_time_ff) / 60} minutes to run Fama French")
+
+        print(
+            f"Took {(time.time() - start_time_ff) / 60:.2f} minutes to run Fama French"
+        )
+
 
     print("")
-    print(f"Took {(time.time() - start_time) / 60} minutes to run factor models")
+    print(f"Took {(time.time() - start_time) / 60:.2f} minutes to run factor models")
     print("")
     return
 
@@ -679,6 +686,8 @@ class IPCA:
             return f_list, None
 
     def _step_gamma(self, R_list, I_list, f_list, nFactors, startIndex=0):
+        import scipy as sp
+
         A = np.zeros(
             (
                 self._individual_feature_dim * nFactors,
@@ -696,11 +705,30 @@ class IPCA:
             else:
                 A += tmp_t.T.dot(tmp_t)
                 b += tmp_t.T.dot(R_t)
+
         try:
+            if not np.all(np.linalg.eigvals(A) >= 0):  # Check if PSD
+                A += 1e-6 * np.eye(A.shape[0])  # Add regularization term
+                eigenvalues, eigenvectors = np.linalg.eigh(A)
+                eigenvalues[eigenvalues < 0] = 1e-4  # Adjust negative eigenvalues
+                A = (
+                    eigenvectors @ np.diag(eigenvalues) @ eigenvectors.T
+                )  # Hopefully PSD now.
+
             Gamma = np.linalg.solve(A, b)
-        except np.linalg.LinAlgError as err:
-            # print(str(err))
-            Gamma = np.linalg.pinv(A).dot(b)
+
+        except:
+            try:
+                Gamma = np.linalg.pinv(A) @ b
+            except:
+                try:
+                    Gamma = sp.linalg.solve(A, b, assume_a="pos")
+                except:
+                    try:
+                        Gamma = sp.linalg.solve(A, b, assume_a="sym")
+                    except:
+                        Gamma = np.linalg.pinv(A).dot(b)
+
         return Gamma.reshape((self._individual_feature_dim, nFactors))
 
     def _initial_factors(self, R_list, I_list, nFactors, startIndex=0):
@@ -1468,7 +1496,9 @@ class FamaFrench:
             )
 
         # Drop the first column of self.FamaFrenchFiveFactorsDaily
-        self.FamaFrenchFiveFactorsDaily = self.FamaFrenchFiveFactorsDaily.iloc[:, 1:]
+        self.FamaFrenchFiveFactorsDaily = (
+            self.FamaFrenchFiveFactorsDaily.iloc[:, 1:] / 100
+        )
 
         print(self.FamaFrenchFiveFactorsDaily.head())
 
