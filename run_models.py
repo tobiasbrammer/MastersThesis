@@ -22,7 +22,7 @@ from pre_process import *
 # Initialize parameters
 ########################################################################################################################
 # Load data
-df = np.load('daily_data_run.npy')
+df = np.load("factor_data/daily_data.npz", allow_pickle=True)['data']
 daily_dates = np.load('daily_dates.npy', allow_pickle=True)
 
 # Set output path and cwd
@@ -54,7 +54,7 @@ preprocess = preprocess_cnn
 factors = [config["res_pca_path"]]  # ['PCA', 'IPCA', 'FamaFrench']
 
 
-run_model(factors, model_name, preprocess, config, cwd, daily_dates)
+run_model(factors, model_name, preprocess, config, cwd, pd.DataFrame(daily_dates))
 
 
 # Checking results
