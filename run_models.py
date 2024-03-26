@@ -3,6 +3,7 @@ from functions import *
 import yaml
 from pre_process import *
 import os
+from tqdm import tqdm
 
 
 def PlotSeries(dict, dictTitle, sFactorModel: str, iFactors: int):
@@ -182,19 +183,28 @@ ou = True
 fft = True
 cnn = False
 
-lFactorModels = ["ff", "pca", "ipca"]
-
-iFactors = [0]
+lFactorModels = ["pca", "ipca"]
+# lFactorModels = ["ff", "pca", "ipca"]
+iFactors = [0, 1, 3, 5, 8, 10, 15]
 # iFactors = [0, 1, 3, 5, 8, 10, 15]
 
-for model in lFactorModels:
+pbar1 = tqdm(lFactorModels)
+
+for model in pbar1:
+
+    pbar1.set_description(desc=f"Processing {model}")
 
     if model == "ff":
         iFactors = range(len(iFactors))
+    else:
+        iFactors = [0, 1, 3, 5, 8, 10, 15]
 
-    print(f"Running models for {model}")
-    for i in iFactors:
+    pbar2 = tqdm(iFactors, desc=f"{model}", position=0, leave=False)
+
+    for i in pbar2:
+        print("\n")
         print(f"Running models for {model} with {i} factors")
+        pbar2.set_description_str(f"Factor: {model} {i}")
         """
         OU
         """
