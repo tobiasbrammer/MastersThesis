@@ -24,9 +24,58 @@ trans_cost: 0 # cost in bps per txn side per equity, e.g. 0.0005
 hold_cost: 0 # cost in bps for short positions per equity per day, e.g. 0.0001
 parallelize: False
 
-# Mine
-res_pca_path: "factor_outputs/OOSResiduals_PCA_factor5_rollingwindow_60.npy"
+device: "cpu"
 model_tag: "OU"  # ToDo: What do we want to include? lookback, objective, trans_cost, hold_cost, num_epochs, lr ??
 model_name_: "OU_FFN"  # For saving in correct directory
-residual_weights: "factor_outputs/OOSResidualsmatrix_PCA_factor5_rollingwindow_60.npy"
-device: "cpu"
+
+
+# Residual paths
+pca_0_res_path: "factor_data/residuals/pca/OOSResiduals_PCA_factor0_rollingwindow_60.npz"
+pca_1_res_path: "factor_data/residuals/pca/OOSResiduals_PCA_factor1_rollingwindow_60.npz"
+pca_3_res_path: "factor_data/residuals/pca/OOSResiduals_PCA_factor3_rollingwindow_60.npz"
+pca_5_res_path: "factor_data/residuals/pca/OOSResiduals_PCA_factor5_rollingwindow_60.npz"
+pca_8_res_path: "factor_data/residuals/pca/OOSResiduals_PCA_factor8_rollingwindow_60.npz"
+pca_10_res_path: "factor_data/residuals/pca/OOSResiduals_PCA_factor10_rollingwindow_60.npz"
+pca_15_res_path: "factor_data/residuals/pca/OOSResiduals_PCA_factor15_rollingwindow_60.npz"
+
+pca_0_residual_weights: "factor_data/residuals/pca/OOSResidualsmatrix_PCA_factor0_rollingwindow_60.npz"
+pca_1_residual_weights: "factor_data/residuals/pca/OOSResidualsmatrix_PCA_factor1_rollingwindow_60.npz"
+pca_3_residual_weights: "factor_data/residuals/pca/OOSResidualsmatrix_PCA_factor3_rollingwindow_60.npz"
+pca_5_residual_weights: "factor_data/residuals/pca/OOSResidualsmatrix_PCA_factor5_rollingwindow_60.npz"
+pca_8_residual_weights: "factor_data/residuals/pca/OOSResidualsmatrix_PCA_factor8_rollingwindow_60.npz"
+pca_10_residual_weights: "factor_data/residuals/pca/OOSResidualsmatrix_PCA_factor10_rollingwindow_60.npz"
+pca_15_residual_weights: "factor_data/residuals/pca/OOSResidualsmatrix_PCA_factor15_rollingwindow_60.npz"
+
+ipca_0_res_path: "factor_data/residuals/ipca/IPCA_DailyMatrixOOSresiduals_0_factors_210_initialMonths_60_window_0.01_cap.npz"
+ipca_1_res_path: "factor_data/residuals/ipca/IPCA_DailyMatrixOOSresiduals_1_factors_210_initialMonths_60_window_0.01_cap.npz"
+ipca_3_res_path: "factor_data/residuals/ipca/IPCA_DailyMatrixOOSresiduals_3_factors_210_initialMonths_60_window_0.01_cap.npz"
+ipca_5_res_path: "factor_data/residuals/ipca/IPCA_DailyMatrixOOSresiduals_5_factors_210_initialMonths_60_window_0.01_cap.npz"
+ipca_8_res_path: "factor_data/residuals/ipca/IPCA_DailyMatrixOOSresiduals_8_factors_210_initialMonths_60_window_0.01_cap.npz"
+ipca_10_res_path: "factor_data/residuals/ipca/IPCA_DailyMatrixOOSresiduals_10_factors_210_initialMonths_60_window_0.01_cap.npz"
+ipca_15_res_path: "factor_data/residuals/ipca/IPCA_DailyMatrixOOSresiduals_15_factors_210_initialMonths_60_window_0.01_cap.npz"
+
+ipca_0_residual_weights: "factor_data/residuals/ipca/IPCA_DailyOOSresiduals_0_factors_210_initialMonths_60_window_0.01_cap.npz"
+ipca_1_residual_weights: "factor_data/residuals/ipca/IPCA_DailyOOSresiduals_1_factors_210_initialMonths_60_window_0.01_cap.npz"
+ipca_3_residual_weights: "factor_data/residuals/ipca/IPCA_DailyOOSresiduals_3_factors_210_initialMonths_60_window_0.01_cap.npz"
+ipca_5_residual_weights: "factor_data/residuals/ipca/IPCA_DailyOOSresiduals_5_factors_210_initialMonths_60_window_0.01_cap.npz"
+ipca_8_residual_weights: "factor_data/residuals/ipca/IPCA_DailyOOSresiduals_8_factors_210_initialMonths_60_window_0.01_cap.npz"
+ipca_10_residual_weights: "factor_data/residuals/ipca/IPCA_DailyOOSresiduals_10_factors_210_initialMonths_60_window_0.01_cap.npz"
+ipca_15_residual_weights: "factor_data/residuals/ipca/IPCA_DailyOOSresiduals_15_factors_210_initialMonths_60_window_0.01_cap.npz"
+
+ff_0_res_path: "factor_data/residuals/fama_french/DailyFamaFrench_OOSresiduals_0_factors_60_rollingWindow_0.01_Cap.npz"
+ff_1_res_path: "factor_data/residuals/fama_french/DailyFamaFrench_OOSresiduals_1_factors_60_rollingWindow_0.01_Cap.npz"
+ff_2_res_path: "factor_data/residuals/fama_french/DailyFamaFrench_OOSresiduals_2_factors_60_rollingWindow_0.01_Cap.npz"
+ff_3_res_path: "factor_data/residuals/fama_french/DailyFamaFrench_OOSresiduals_3_factors_60_rollingWindow_0.01_Cap.npz"
+ff_4_res_path: "factor_data/residuals/fama_french/DailyFamaFrench_OOSresiduals_4_factors_60_rollingWindow_0.01_Cap.npz"
+ff_5_res_path: "factor_data/residuals/fama_french/DailyFamaFrench_OOSresiduals_5_factors_60_rollingWindow_0.01_Cap.npz"
+ff_6_res_path: "factor_data/residuals/fama_french/DailyFamaFrench_OOSresiduals_6_factors_60_rollingWindow_0.01_Cap.npz"
+ff_7_res_path: "factor_data/residuals/fama_french/DailyFamaFrench_OOSresiduals_7_factors_60_rollingWindow_0.01_Cap.npz"
+
+ff_0_residual_weights: "factor_data/residuals/fama_french/DailyFamaFrench_OOSresiduals_0_factors_60_rollingWindow_0.01_Cap.npz"
+ff_1_residual_weights: "factor_data/residuals/fama_french/DailyFamaFrench_OOSresiduals_1_factors_60_rollingWindow_0.01_Cap.npz"
+ff_2_residual_weights: "factor_data/residuals/fama_french/DailyFamaFrench_OOSresiduals_2_factors_60_rollingWindow_0.01_Cap.npz"
+ff_3_residual_weights: "factor_data/residuals/fama_french/DailyFamaFrench_OOSresiduals_3_factors_60_rollingWindow_0.01_Cap.npz"
+ff_4_residual_weights: "factor_data/residuals/fama_french/DailyFamaFrench_OOSresiduals_4_factors_60_rollingWindow_0.01_Cap.npz"
+ff_5_residual_weights: "factor_data/residuals/fama_french/DailyFamaFrench_OOSresiduals_5_factors_60_rollingWindow_0.01_Cap.npz"
+ff_6_residual_weights: "factor_data/residuals/fama_french/DailyFamaFrench_OOSresiduals_6_factors_60_rollingWindow_0.01_Cap.npz"
+ff_7_residual_weights: "factor_data/residuals/fama_french/DailyFamaFrench_OOSresiduals_7_factors_60_rollingWindow_0.01_Cap.npz"

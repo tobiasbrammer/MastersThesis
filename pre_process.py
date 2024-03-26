@@ -6,18 +6,18 @@ Functions to preprocess residual time series into time series for use with model
 """
 
 
-def preprocess_fourier(df, lookback):
+def preprocess_fourier(data, lookback):
 
     signal_length = lookback
-    T, N = df.shape
-    cumsums = np.cumsum(df, axis=0)
+    T, N = data.shape
+    cumsums = np.cumsum(data, axis=0)
     windows = np.zeros((T - lookback, N, signal_length), dtype=np.float32)
     idxsSelected = np.zeros((T - lookback, N), dtype=bool)
 
     for t in range(lookback, T):
 
         idxsSelected[t - lookback, :] = ~np.any(
-            df[(t - lookback) : t, :] == 0, axis=0
+            data[(t - lookback) : t, :] == 0, axis=0
         ).ravel()
 
         idxs = idxsSelected[t - lookback, :]
@@ -39,11 +39,13 @@ def preprocess_fourier(df, lookback):
     return windows, idxSelected
 
 
-def preprocess_ou(df, lookback):
+def preprocess_ou(data, lookback):
 
-    signal_length = 4  # ToDo: Why does DLSA use 4? - To match dimensions of hidden the layers
-    T, N = df.shape
-    cumsums = np.cumsum(df, axis=0)
+    signal_length = (
+        4  # ToDo: Why does DLSA use 4? - To match dimensions of hidden the layers
+    )
+    T, N = data.shape
+    cumsums = np.cumsum(data, axis=0)
     windows = np.zeros((T - lookback, N, signal_length), dtype=np.float32)
     idxs_selected = np.zeros((T - lookback, N), dtype=bool)
 
@@ -52,7 +54,7 @@ def preprocess_ou(df, lookback):
         # Update the idxs_selected array at the t - lookback row to mark features in the data array that
         # do not have any zero value in the last 'lookback' time steps.
         idxs_selected[t - lookback, :] = ~np.any(
-            df[(t - lookback) : t, :] == 0, axis=0
+            data[(t - lookback) : t, :] == 0, axis=0
         ).ravel()
 
         # Select the features that have no zero value in the last 'lookback' time steps.
@@ -91,7 +93,7 @@ def preprocess_ou(df, lookback):
         # kappas = -np.log(bs) # \delta = -\log(b)/\Delta t, however \Delta t = 1 in the paper.
         residuals = Ys - bs.reshape((Nx, 1)) * Xs - cs.reshape((Nx, 1))  # (N,T-1)
         # sigmas = np.sqrt(np.var(residuals, axis=1)*kappas / np.abs(1 - bs**2 + 0.000001))
-        sigmas = np.sqrt(np.var(residuals, axis=1) / np.abs(1 - bs ** 2 + 0.000001))
+        sigmas = np.sqrt(np.var(residuals, axis=1) / np.abs(1 - bs**2 + 0.000001))
         # Initialize the signal array with zeros.
         signal = np.zeros((Nx))
         # Update the signal array with the transformed residuals.
@@ -129,15 +131,18 @@ def preprocess_cnn(data, lookback):
 
     for t in range(lookback, T):
         # chooses stocks which have no missing returns in the t-th lookback window
-        idxs_selected[t - lookback, :] = ~np.any(data[(t - lookback): t, :] == 0, axis=0).ravel()
+        idxs_selected[t - lookback, :] = ~np.any(
+            data[(t - lookback) : t, :] == 0, axis=0
+        ).ravel()
         idxs = idxs_selected[t - lookback, :]
 
         if t == lookback:
-            windows[t - lookback, idxs, :] = cumsums[t - lookback: t, idxs].T
+            windows[t - lookback, idxs, :] = cumsums[t - lookback : t, idxs].T
         else:
             # Probably unnecessary given the conv normalization, but is just to have the same setting as in the OU case
-            windows[t - lookback, idxs, :] = (cumsums[t - lookback: t, idxs].T -
-                                              cumsums[t - lookback - 1, idxs].reshape(int(sum(idxs)), 1))
+            windows[t - lookback, idxs, :] = cumsums[
+                t - lookback : t, idxs
+            ].T - cumsums[t - lookback - 1, idxs].reshape(int(sum(idxs)), 1)
 
     idxs_selected = torch.as_tensor(idxs_selected)
 

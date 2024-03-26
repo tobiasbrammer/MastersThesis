@@ -189,6 +189,9 @@ def run_factor_models(
     sizeWindow=[60],
     initialOOSYear=2000,
     capProportion=[0.01],
+    pca=True,
+    ipca=True,
+    ff=True,
 ):
 
     import time
@@ -202,79 +205,92 @@ def run_factor_models(
 
     MonthlyData = np.load("factor_data/monthly_data.npz", allow_pickle=True)
 
-    print("Loading daily returns")
-    print("Preprocessing monthly characteristics data")
-    preprocessMonthlyData(MonthlyData, normalizeCharacteristics=True)
-    preprocessMonthlyData(MonthlyData, normalizeCharacteristics=False)
-    print("Preprocessing daily returns")
-    preprocessDailyReturns()
-    print("")
+    if os.path.exists("factor_data/MonthlyDataNormalized.npz"):
+        print("Normalized monthly characteristics already processed; skipping")
+    else:
+        print("Preprocessing monthly characteristics data")
+        preprocessMonthlyData(MonthlyData, normalizeCharacteristics=True)
 
-    print("Initializing PCA factor model")
-    start_time_pca = time.time()
-    print("Running PCA")
-    print("")
-    pca = PCA(logdir=os.path.join("factor_data/residuals", "pca"))
-    for prop in capProportion:  # , 0.001]:
-        for size in sizeWindow:  # 15*12]:
-            print(f"Running IPCA for window size {size}, cap proportion {prop}")
-            pca.OOSRollingWindowPermnos(
-                listFactors=listFactors,  # [0, 1, 3, 5, 8, 10, 15]
-                sizeWindow=size,
-                CapProportion=prop,
-            )
-    print("")
-    print(f"Took {(time.time() - start_time_pca) / 60} minutes to run PCA")
+    if os.path.exists("factor_data/MonthlyDataUnnormalized.npz"):
+        print("Unnormalized monthly characteristics already processed; skipping")
+    else:
+        print("Preprocessing monthly characteristics data")
+        preprocessMonthlyData(MonthlyData, normalizeCharacteristics=False)
 
+    if os.path.exists("factor_data/daily_data_processed.npz"):
+        print("Daily returns already processed; skipping")
+    else:
+        print("Preprocessing daily returns")
+        preprocessDailyReturns()
     print("")
-    print("Initializing IPCA factor model")
-    start_time_ipca = time.time()
-    print("Running IPCA")
-    print("")
-    ipca = IPCA(logdir=os.path.join("factor_data", "residuals", "ipca"))
-    for prop in capProportion:  # , 0.001]:
-        for size in sizeWindow:  # 15*12]:
-            print(f"Running IPCA for window size {size}, cap proportion {prop}")
-            ipca.DailyOOSRollingWindow(
-                listFactors=listFactors,  # [0, 1, 3, 5, 8, 10, 15]
-                initialMonths=210,  # 210
-                sizeWindow=size,
-                CapProportion=prop,
-                maxIter=1024,
-                weighted=False,
-                save=True,
-                save_beta=False,
-                save_gamma=False,
-                save_rmonth=False,
-                save_mask=False,
-                save_sparse_weights_month=False,
-                skip_oos=False,
-                reestimationFreq=12,
-            )
-    print("")
-    print(f"Took {(time.time() - start_time_ipca) / 60} minutes to run IPCA")
+    if pca:
+        print("Initializing PCA factor model")
+        start_time_pca = time.time()
+        print("Running PCA")
+        print("")
+        pca = PCA(logdir=os.path.join("factor_data/residuals", "pca"))
+        for prop in capProportion:  # , 0.001]:
+            for size in sizeWindow:  # 15*12]:
+                print(f"Running IPCA for window size {size}, cap proportion {prop}")
+                pca.OOSRollingWindowPermnos(
+                    listFactors=listFactors,  # [0, 1, 3, 5, 8, 10, 15]
+                    sizeWindow=size,
+                    CapProportion=prop,
+                )
+        print("")
+        print(f"Took {(time.time() - start_time_pca) / 60} minutes to run PCA")
 
     print("")
-    print("Initializing Fama French factor model")
-    if not os.path.exists("factor_data/FamaFrench8Daily.csv"):
-        process_ff()
-    start_time_ff = time.time()
-    print("Running Fama French")
+    if ipca:
+        print("Initializing IPCA factor model")
+        start_time_ipca = time.time()
+        print("Running IPCA")
+        print("")
+        ipca = IPCA(logdir=os.path.join("factor_data", "residuals", "ipca"))
+        for prop in capProportion:  # , 0.001]:
+            for size in sizeWindow:  # 15*12]:
+                print(f"Running IPCA for window size {size}, cap proportion {prop}")
+                ipca.DailyOOSRollingWindow(
+                    listFactors=listFactors,  # [0, 1, 3, 5, 8, 10, 15]
+                    initialMonths=210,  # 210
+                    sizeWindow=size,
+                    CapProportion=prop,
+                    maxIter=1024,
+                    weighted=False,
+                    save=True,
+                    save_beta=False,
+                    save_gamma=False,
+                    save_rmonth=False,
+                    save_mask=False,
+                    save_sparse_weights_month=False,
+                    skip_oos=False,
+                    reestimationFreq=12,
+                )
+        print("")
+        print(f"Took {(time.time() - start_time_ipca) / 60} minutes to run IPCA")
+
     print("")
-    ff = FamaFrench(logdir=os.path.join("factor_data/residuals", "fama_french"))
-    for prop in capProportion:  # , 0.001]:
-        for size in sizeWindow:  # 15*12]:
-            print(
-                f"Running Fama French for window size {size}, cap proportion {capProportion}"
-            )
-            ff.OOSRollingWindowPermnos(
-                initialOOSYear=initialOOSYear,
-                sizeWindow=size,
-                cap=prop,
-                save=True,
-            )
-    print("")
-    print(f"Took {(time.time() - start_time_ff) / 60} minutes to run Fama French")
+    if ff:
+        print("Initializing Fama French factor model")
+        if not os.path.exists("factor_data/FamaFrench8Daily.csv"):
+            process_ff()
+        start_time_ff = time.time()
+        print("Running Fama French")
+        print("")
+        ff = FamaFrench(logdir=os.path.join("factor_data/residuals", "fama_french"))
+        for prop in capProportion:  # , 0.001]:
+            for size in sizeWindow:  # 15*12]:
+                print(
+                    f"Running Fama French for window size {size}, cap proportion {capProportion}"
+                )
+                ff.OOSRollingWindowPermnos(
+                    initialOOSYear=initialOOSYear,
+                    sizeWindow=size,
+                    cap=prop,
+                    save=True,
+                )
+        print("")
+        print(f"Took {(time.time() - start_time_ff) / 60} minutes to run Fama French")
 
     print("")
     print(f"Took {(time.time() - start_time) / 60} minutes to run factor models")
@@ -350,9 +366,9 @@ class PCA:
             print("Filtered by cap!")
             print("Computing residuals")
 
-        # If 0 is in listFactors, remove it
-        if 0 in listFactors:
-            listFactors.remove(0)
+        # # If 0 is in listFactors, remove it
+        # if 0 in listFactors:
+        #     listFactors.remove(0)
 
         for factor in listFactors:
             residualsOOS = np.zeros((T - firstOOSDailyIdx, N), dtype=float)
@@ -379,67 +395,67 @@ class PCA:
                         (t + firstOOSDailyIdx) : (t + firstOOSDailyIdx + 1),
                         idxsSelected,
                     ]
-            else:
-                res_cov_window = Rdaily[
-                    (t + firstOOSDailyIdx - sizeCovarianceWindow) : (
-                        t + firstOOSDailyIdx
-                    ),
-                    idxsSelected,
-                ]
-                np.nan_to_num(res_cov_window, copy=False)
-                res_mean = np.mean(res_cov_window, axis=0, keepdims=True)
-                res_vol = np.sqrt(
-                    np.mean((res_cov_window - res_mean) ** 2, axis=0, keepdims=True)
-                )
-                # Add 1e-8 to res_vol
-                res_vol = res_vol + 1e-8
-                res_normalized = (res_cov_window - res_mean) / res_vol
-                np.nan_to_num(res_normalized, copy=False)
-                corr = np.dot(
-                    res_normalized.T, res_normalized
-                )  # (x_1 - x_1_mean) * (x_2 - X_2_mean) / std_1 * std_2
-                np.nan_to_num(corr, copy=False)
-                eigenvalues, eigenvectors = np.linalg.eig(corr)
-                temp = np.argpartition(-eigenvalues, factor)
-                idxs = temp[:factor]
-                loadings = eigenvectors[
-                    :, idxs
-                ].real  # Takes eigenvector corresponding to factor largest eigenvalues
-                factors = np.dot(
-                    np.nan_to_num(
-                        res_cov_window[-sizeWindow:, :] / res_vol, copy=False
-                    ),
-                    loadings,
-                )
-                DayFactors = np.dot(
-                    Rdaily[t + firstOOSDailyIdx, idxsSelected] / res_vol, loadings
-                )
-                old_loadings = loadings
-                regr = LinearRegression(fit_intercept=False, n_jobs=-1).fit(
-                    factors, res_cov_window[-sizeWindow:, :]
-                )
-                loadings = regr.coef_
-                residuals = Rdaily[t + firstOOSDailyIdx, idxsSelected] - DayFactors.dot(
-                    loadings.T
-                )
-                residualsOOS[t : (t + 1), idxsSelected] = residuals
+                else:
+                    res_cov_window = Rdaily[
+                        (t + firstOOSDailyIdx - sizeCovarianceWindow) : (
+                            t + firstOOSDailyIdx
+                        ),
+                        idxsSelected,
+                    ]
+                    np.nan_to_num(res_cov_window, copy=False)
+                    res_mean = np.mean(res_cov_window, axis=0, keepdims=True)
+                    res_vol = np.sqrt(
+                        np.mean((res_cov_window - res_mean) ** 2, axis=0, keepdims=True)
+                    )
+                    # Add 1e-8 to res_vol
+                    res_vol = res_vol + 1e-8
+                    res_normalized = (res_cov_window - res_mean) / res_vol
+                    np.nan_to_num(res_normalized, copy=False)
+                    corr = np.dot(
+                        res_normalized.T, res_normalized
+                    )  # (x_1 - x_1_mean) * (x_2 - X_2_mean) / std_1 * std_2
+                    np.nan_to_num(corr, copy=False)
+                    eigenvalues, eigenvectors = np.linalg.eig(corr)
+                    temp = np.argpartition(-eigenvalues, factor)
+                    idxs = temp[:factor]
+                    loadings = eigenvectors[
+                        :, idxs
+                    ].real  # Takes eigenvector corresponding to factor largest eigenvalues
+                    factors = np.dot(
+                        np.nan_to_num(
+                            res_cov_window[-sizeWindow:, :] / res_vol, copy=False
+                        ),
+                        loadings,
+                    )
+                    DayFactors = np.dot(
+                        Rdaily[t + firstOOSDailyIdx, idxsSelected] / res_vol, loadings
+                    )
+                    old_loadings = loadings
+                    regr = LinearRegression(fit_intercept=False, n_jobs=-1).fit(
+                        factors, res_cov_window[-sizeWindow:, :]
+                    )
+                    loadings = regr.coef_
+                    residuals = Rdaily[
+                        t + firstOOSDailyIdx, idxsSelected
+                    ] - DayFactors.dot(loadings.T)
+                    residualsOOS[t : (t + 1), idxsSelected] = residuals
 
-                Nprime = len(res_cov_window[-1:, :].ravel())
-                MatrixFull = np.zeros((N, N))
-                # MatrixReduced = I - 1 / res_vol * weights * beta.T  (equation 1 in DLSA)
-                MatrixReduced = (
-                    np.eye(Nprime)
-                    - np.diag(1 / res_vol.squeeze()) @ old_loadings @ loadings.T
-                )
-                idxsSelected2 = idxsSelected.reshape((N, 1)) @ idxsSelected.reshape(
-                    (1, N)
-                )
-                MatrixFull[idxsSelected2] = MatrixReduced.ravel()
-                residuals2 = res_cov_window[-1:, :] @ MatrixReduced
+                    Nprime = len(res_cov_window[-1:, :].ravel())
+                    MatrixFull = np.zeros((N, N))
+                    # MatrixReduced = I - 1 / res_vol * weights * beta.T  (equation 1 in DLSA)
+                    MatrixReduced = (
+                        np.eye(Nprime)
+                        - np.diag(1 / res_vol.squeeze()) @ old_loadings @ loadings.T
+                    )
+                    idxsSelected2 = idxsSelected.reshape((N, 1)) @ idxsSelected.reshape(
+                        (1, N)
+                    )
+                    MatrixFull[idxsSelected2] = MatrixReduced.ravel()
+                    residuals2 = res_cov_window[-1:, :] @ MatrixReduced
 
-                residualsMatricesOOS[t : (t + 1)] = MatrixFull[assetsToConsider][
-                    :, assetsToConsider
-                ].T
+                    residualsMatricesOOS[t : (t + 1)] = MatrixFull[assetsToConsider][
+                        :, assetsToConsider
+                    ].T
 
             np.nan_to_num(residualsOOS, copy=False)
             np.nan_to_num(residualsMatricesOOS, copy=False)
@@ -993,14 +1009,14 @@ class IPCA:
 
         np.save("factor_data/residuals/super_mask.npy", superMask)
 
-        if not os.path.isdir(
-            self._logdir + "_stuff"
-        ):  # ToDo: No idea why this is necessary.
-            try:
-                os.mkdir(self._logdir + "_stuff")
-            except Exception as e:
-                print(f"Could not create folder '{self._logdir + '_stuff'}'!")
-                raise e
+        # if not os.path.isdir(
+        #     self._logdir + "_stuff"
+        # ):  # ToDo: No idea why this is necessary.
+        #     try:
+        #         os.mkdir(self._logdir + "_stuff")
+        #     except Exception as e:
+        #         print(f"Could not create folder '{self._logdir + '_stuff'}'!")
+        #         raise e
 
         if printOnConsole:
             print("Beginning daily residual computations")
@@ -1604,7 +1620,7 @@ class FamaFrench:
                 os.makedirs(self._logdir, exist_ok=True)
                 residuals_mtx_filename = (
                     f"DailyFamaFrench_OOSMatrixresiduals"
-                    + f"_{factor}_factors_{initialOOSYear}_initialOOSYear_{sizeWindow}_rollingWindow_{cap}_Cap.npz"
+                    + f"_{factor}_factors_{sizeWindow}_rollingWindow_{cap}_Cap.npz"
                 )
                 os.makedirs(os.path.dirname(self._logdir), exist_ok=True)
                 np.savez_compressed(
@@ -1613,7 +1629,7 @@ class FamaFrench:
                 )
                 residuals_filename = (
                     f"DailyFamaFrench_OOSresiduals"
-                    + f"_{factor}_factors_{initialOOSYear}_initialOOSYear_{sizeWindow}_rollingWindow_{cap}_Cap.npz"
+                    + f"_{factor}_factors_{sizeWindow}_rollingWindow_{cap}_Cap.npz"
                 )
                 np.savez_compressed(
                     os.path.join(self._logdir, residuals_filename), residualsOOS

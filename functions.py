@@ -213,8 +213,8 @@ def train(
     if device is None:
         device = model.device
 
-    if residual_weights_train is not None:
-        residual_weights_train = residual_weights_train[:, assets_to_trade]
+    # if residual_weights_train is not None:
+    # residual_weights_train = residual_weights_train[:, assets_to_trade]
 
     T, N = df_train.shape
     windows, idxs_selected = preprocess(df_train, lookback)
@@ -837,25 +837,25 @@ def test(
 
     cumRets = np.cumprod(1 + returns)
 
-    # Plot cumulative returns
-    plt.figure()
-    plt.plot_date(daily_dates[-len(cumRets) :], cumRets, marker="None", linestyle="-")
-    plt.savefig(os.path.join(output_path, model_tag + "_cumulative-returns.png"))
-    upload(plt, "Master's Thesis", f"figures/{model_tag}_cumulative-returns.png")
-
-    # Plot turnover
-    plt.figure()
-    plt.plot_date(daily_dates[-len(cumRets) :], turnovers, marker="None", linestyle="-")
-    plt.savefig(os.path.join(output_path, model_tag + "_turnover.png"))
-    upload(plt, "Master's Thesis", f"figures/{model_tag}_turnover.png")
-
-    # Plot short positions
-    plt.figure()
-    plt.plot_date(
-        daily_dates[-len(cumRets) :], short_proportions, marker="None", linestyle="-"
-    )
-    plt.savefig(os.path.join(output_path, model_tag + "_short-proportions.png"))
-    upload(plt, "Master's Thesis", f"figures/{model_tag}_short-proportions.png")
+    # # Plot cumulative returns
+    # plt.figure()
+    # plt.plot_date(daily_dates[-len(cumRets) :], cumRets, marker="None", linestyle="-")
+    # plt.savefig(os.path.join(output_path, model_tag + "_cumulative-returns.png"))
+    # upload(plt, "Master's Thesis", f"figures/{model_tag}_cumulative-returns.png")
+    #
+    # # Plot turnover
+    # plt.figure()
+    # plt.plot_date(daily_dates[-len(cumRets) :], turnovers, marker="None", linestyle="-")
+    # plt.savefig(os.path.join(output_path, model_tag + "_turnover.png"))
+    # upload(plt, "Master's Thesis", f"figures/{model_tag}_turnover.png")
+    #
+    # # Plot short positions
+    # plt.figure()
+    # plt.plot_date(
+    #     daily_dates[-len(cumRets) :], short_proportions, marker="None", linestyle="-"
+    # )
+    # plt.savefig(os.path.join(output_path, model_tag + "_short-proportions.png"))
+    # upload(plt, "Master's Thesis", f"figures/{model_tag}_short-proportions.png")
 
     np.save(
         os.path.join(output_path, "WeightsComplete_" + model_tag + ".npy"), all_weights
@@ -944,7 +944,17 @@ Run the model
 """
 
 
-def run_model(factors: list, model_name, preprocess, config, cwd, daily_dates):
+def run_model(
+    factors: list,
+    model_name,
+    preprocess,
+    config,
+    cwd,
+    daily_dates,
+    weights,
+    iFactors,
+    sFactor,
+):
     """
     Runs the model for all factors in the list
     Args:
@@ -964,11 +974,11 @@ def run_model(factors: list, model_name, preprocess, config, cwd, daily_dates):
         print(f"Testing factor model: {factors[i]}")
         start_time = time.time()
 
-        residuals = np.load(factors[i])
+        residuals = np.load(factors[i], allow_pickle=True)["arr_0"]
 
         if config["use_residual_weights"]:
             # ToDo: Skal laves noget så den kan hente dem ordenligt
-            residual_weights = np.load(config["residual_weights"])
+            residual_weights = np.load(weights, allow_pickle=True)["arr_0"]
         else:
             residual_weights = None
 
@@ -1067,9 +1077,11 @@ def run_model(factors: list, model_name, preprocess, config, cwd, daily_dates):
         }
 
         # Save results
-        with open(f"{cwd}/results/{model_tag}_results.pkl", "wb") as f:
+        with open(
+            f"{cwd}/results/{model_tag}_{sFactor}_{iFactors}_results.pkl", "wb"
+        ) as f:
             pickle.dump(results_dict, f)
 
         print(
-            f"Time for {str(model_name)} factor model {factors[i]}: {(time.time() - start_time) / 60} minutes"
+            f"Time for {str(model_name)} factor model {factors[i]}_{iFactors}: {(time.time() - start_time) / 60} minutes"
         )
