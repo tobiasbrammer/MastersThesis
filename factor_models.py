@@ -187,11 +187,11 @@ Run factor models
 def run_factor_models(
     listFactors=[0, 1, 3, 5, 8, 10, 15],
     sizeCovarianceWindow=252,
-    sizeWindow=[15 * 12],
-    initialOOSYear=2005,
-    capProportion=[0.001],
-    pca=False,
-    ipca=False,
+    sizeWindow=[60],
+    initialOOSYear=2000,
+    capProportion=[0.001],  # Not used.
+    pca=True,
+    ipca=True,
     ff=True,
 ):
 
@@ -254,7 +254,7 @@ def run_factor_models(
                 print(f"Running IPCA for window size {size}, cap proportion {prop}")
                 ipca.DailyOOSRollingWindow(
                     listFactors=listFactors,  # [0, 1, 3, 5, 8, 10, 15]
-                    initialMonths=210,  # 210
+                    initialMonths=12 * (initialOOSYear - 1970),  # 210
                     sizeWindow=size,
                     CapProportion=prop,
                     maxIter=1024,
@@ -271,7 +271,6 @@ def run_factor_models(
         print("")
 
         print(f"Took {(time.time() - start_time_ipca) / 60:.2f} minutes to run IPCA")
-
 
     print("")
     if ff:
@@ -298,7 +297,6 @@ def run_factor_models(
         print(
             f"Took {(time.time() - start_time_ff) / 60:.2f} minutes to run Fama French"
         )
-
 
     print("")
     print(f"Took {(time.time() - start_time) / 60:.2f} minutes to run factor models")
@@ -338,11 +336,7 @@ class PCA:
         listFactors=[0, 1, 3, 5, 8, 10, 15],
     ):
 
-        cap_chosen_idxs = (
-            self.monthlyCaps / np.nansum(self.monthlyCaps, axis=1, keepdims=True)
-            >= CapProportion * 0.01
-        )
-        mask2 = (~np.isnan(self.monthlyData[:, :, 0])) * cap_chosen_idxs
+        mask2 = ~np.isnan(self.monthlyData[:, :, 0])
 
         Rdaily = self.dailyData.copy()
 
@@ -961,11 +955,7 @@ class IPCA:
         R[np.isnan(R)] = 0  # ToDo: Test
         I = self.monthlyData[:, :, 1:]  #
         I[np.isnan(I)] = 0  # ToDo: Test
-        cap_chosen_idxs = (
-            self.monthlyCaps / np.nansum(self.monthlyCaps, axis=1, keepdims=True)
-            >= CapProportion * 0.01
-        )
-        mask = (~np.isnan(R)) * cap_chosen_idxs
+        mask = ~np.isnan(R)
         self.mask = mask
         if save_mask:
             mask_path = os.path.join(
@@ -1402,11 +1392,11 @@ class IPCA:
             if save and not skip_oos:
                 rsavepath = os.path.join(
                     self._logdir,
-                    f"IPCA_DailyOOSresiduals_{nFactors}_factors_{initialMonths}_initialMonths_{sizeWindow}_window_{CapProportion}_cap.npz",
+                    f"IPCA_DailyOOSresiduals_{nFactors}_factors_{sizeWindow}_window.npz",
                 )
                 msavepath = os.path.join(
                     self._logdir,
-                    f"IPCA_DailyMatrixOOSresiduals_{nFactors}_factors_{initialMonths}_initialMonths_{sizeWindow}_window_{CapProportion}_cap.npz",
+                    f"IPCA_DailyMatrixOOSresiduals_{nFactors}_factors_{sizeWindow}_window.npz",
                 )
                 print(f"Saving {rsavepath}")
                 # Ensure folders exist
@@ -1506,10 +1496,10 @@ class FamaFrench:
         self,
         save=True,
         printOnConsole=False,
-        initialOOSYear=1998,
+        initialOOSYear=2005,
         sizeWindow=60,
         cap=0.01,
-        listFactors=list(range(8)),
+        listFactors=[1, 3, 5, 8],
     ):
         Rdaily = np.nan_to_num(self.dailyData)
         T, N = Rdaily.shape
@@ -1518,11 +1508,8 @@ class FamaFrench:
         firstOOSFFDailyIdx = np.argmax(self.FamaFrenchFiveFactorsYear >= initialOOSYear)
         FamaFrenchDaily = self.FamaFrenchFiveFactorsDaily.to_numpy()
         OOSDailyDates = self.dailyDates[firstOOSDailyIdx:]
-        cap_chosen_idxs = (
-            self.monthlyCaps / np.nansum(self.monthlyCaps, axis=1, keepdims=True)
-            >= cap * 0.01
-        )
-        mask = (~np.isnan(self.monthlyData[:, :, 0])) * cap_chosen_idxs
+
+        mask = ~np.isnan(self.monthlyData[:, :, 0])
         # operands could not be broadcast together with shapes (459,) (550,)
         mask = mask[:, : Rdaily.shape[1]]  # ToDo: Hack the number of stocks...
         filename = f"DailyFamaFrench_OOSresiduals_{3}_factors_{initialOOSYear}_initialOOSYear_{sizeWindow}_rollingWindow_{cap}_Cap.npy"
@@ -1651,7 +1638,7 @@ class FamaFrench:
                 os.makedirs(self._logdir, exist_ok=True)
                 residuals_mtx_filename = (
                     f"DailyFamaFrench_OOSMatrixresiduals"
-                    + f"_{factor}_factors_{sizeWindow}_rollingWindow_{cap}_Cap.npz"
+                    + f"_{factor}_factors_{sizeWindow}_rollingWindow.npz"
                 )
                 os.makedirs(os.path.dirname(self._logdir), exist_ok=True)
                 np.savez_compressed(
@@ -1660,7 +1647,7 @@ class FamaFrench:
                 )
                 residuals_filename = (
                     f"DailyFamaFrench_OOSresiduals"
-                    + f"_{factor}_factors_{sizeWindow}_rollingWindow_{cap}_Cap.npz"
+                    + f"_{factor}_factors_{sizeWindow}_rollingWindow.npz"
                 )
                 np.savez_compressed(
                     os.path.join(self._logdir, residuals_filename), residualsOOS

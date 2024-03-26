@@ -184,6 +184,10 @@ torch.backends.cudnn.deterministic = False
 # Check if cuda is available
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
+with open("configs/Residuals.yaml", "r") as file:
+    res_config = yaml.safe_load(file)
+
+
 ou = True
 fft = True
 cnn = False
@@ -200,7 +204,7 @@ for model in pbar1:
     pbar1.set_description(desc=f"Processing {model}")
 
     if model == "ff":
-        iFactors = range(len(iFactors))
+        iFactors = [1, 3, 5, 8]
     else:
         iFactors = [0, 1, 3, 5, 8, 10, 15]
 
@@ -224,8 +228,8 @@ for model in pbar1:
             ou_model_name = OU_FFN
             ou_preprocess = preprocess_ou
 
-            ou_factors = [ou_config[f"{model}_{i}_res_path"]]
-            ou_weights = ou_config[f"{model}_{i}_residual_weights"]
+            ou_factors = [res_config[f"{model}_{i}_res_path"]]
+            ou_weights = res_config[f"{model}_{i}_residual_weights"]
 
             run_model(
                 ou_factors,
@@ -257,8 +261,8 @@ for model in pbar1:
             fft_model_name = FFT_FFN
             fft_preprocess = preprocess_fourier
 
-            fft_factors = [fft_config[f"{model}_{i}_res_path"]]
-            fft_weights = fft_config[f"{model}_{i}_residual_weights"]
+            fft_factors = [res_config[f"{model}_{i}_res_path"]]
+            fft_weights = res_config[f"{model}_{i}_residual_weights"]
 
             run_model(
                 fft_factors,
@@ -289,8 +293,8 @@ for model in pbar1:
             cnn_config["device"] = device
 
             # Load factors - ToDo: Files for our residual data should be in the list:
-            cnn_factors = [cnn_config[f"{model}_{i}_res_path"]]
-            cnn_weights = cnn_config[f"{model}_{i}_residual_weights"]
+            cnn_factors = [res_config[f"{model}_{i}_res_path"]]
+            cnn_weights = res_config[f"{model}_{i}_residual_weights"]
 
             # model_name, preprocess, config, cwd, daily_dates, weights, iFactors
             run_model(
