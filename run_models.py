@@ -7,7 +7,6 @@ import os
 from tqdm import tqdm
 
 
-
 def PlotSeries(dict, dictTitle, sFactorModel: str, iFactors: int):
     """
     Plot a time series of our results, and upload to overleaf.
@@ -40,7 +39,6 @@ def PlotSeries(dict, dictTitle, sFactorModel: str, iFactors: int):
         formattedTitle = "Ornstein-Uhlenbeck + FFN"
         signal = "OU"
 
-
     rets = dict[dictTitle]["returns_test"]
     turnover = dict[dictTitle]["turnover_test"]
     short = dict[dictTitle]["short_proportion_test"]
@@ -72,7 +70,6 @@ def PlotSeries(dict, dictTitle, sFactorModel: str, iFactors: int):
         plt,
         "Master's Thesis",
         f"figures/{signal}/{sFactorModel.upper()}/{dictTitle}_{sFactorModel}_{iFactors}_returns.png",
-
     )
 
     """
@@ -188,13 +185,13 @@ with open("configs/Residuals.yaml", "r") as file:
     res_config = yaml.safe_load(file)
 
 
-ou = True
+ou = False
 fft = True
 cnn = False
 
-lFactorModels = ["pca", "ipca"]
+lFactorModels = ["pca"]
 # lFactorModels = ["ff", "pca", "ipca"]
-iFactors = [0, 1, 3, 5, 8, 10, 15]
+iFactors = [5]
 # iFactors = [0, 1, 3, 5, 8, 10, 15]
 
 pbar1 = tqdm(lFactorModels)
@@ -204,9 +201,10 @@ for model in pbar1:
     pbar1.set_description(desc=f"Processing {model}")
 
     if model == "ff":
-        iFactors = [1, 3, 5, 8]
+        # Only keep [1, 3, 5, 8] in iFactors if they are in the list
+        iFactors = [i for i in iFactors if i in [1, 3, 5, 8]]
     else:
-        iFactors = [0, 1, 3, 5, 8, 10, 15]
+        iFactors = iFactors
 
     pbar2 = tqdm(iFactors, desc=f"{model}", position=0, leave=False)
 
